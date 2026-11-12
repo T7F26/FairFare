@@ -1,0 +1,20 @@
+.admin-login {
+  box-sizing: border-box;
+  width: min(100%, 480px);
+  margin: 48px auto;
+  padding: 24px;
+  text-align: left;
+}
+.admin-login h1 { font-size: 2rem; }
+.admin-login-form { display: grid; gap: 12px; margin-top: 24px; }
+.admin-login-form label { color: var(--text-h); font-weight: 600; }
+.admin-login-form input,
+.admin-login-form button { box-sizing: border-box; width: 100%; padding: 12px; font: inherit; border-radius: 6px; }
+.admin-login-form input { color: var(--text-h); background: var(--bg); border: 1px solid var(--text); }
+.admin-login-form button { margin-top: 12px; color: white; background: #6430a5; border: 0; cursor: pointer; }
+.admin-login-form button:disabled { opacity: .65; cursor: wait; }
+.admin-login-form :focus-visible { outline: 3px solid #478cce; outline-offset: 3px; }
+.admin-login-form [role='alert'] { color: #b42318; }
+@media (prefers-color-scheme: dark) {
+  .admin-login-form [role='alert'] { color: #ffb4ad; }
+}
