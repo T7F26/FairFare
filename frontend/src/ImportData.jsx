@@ -18,9 +18,18 @@ const AGENCIES = [
 const UPLOAD_URL = 'http://localhost:4000/api/admin/import'
 
 // Error codes the backend sends back, and the message we show for each.
+// These match Reinaldo's GTFS validation (backend/src/validation/gtfs.js).
 const ERROR_MESSAGES = {
-  NOT_GTFS: 'File could not be read. The old data was kept.',
-  WRONG_AGENCY: 'This file does not match the chosen agency.',
+  FILE_UNREADABLE: 'File could not be read. The old data was kept.',
+  INVALID_GTFS: 'File could not be read. The old data was kept.',
+  AGENCY_MISMATCH: 'This file does not match the chosen agency.',
+  UNSUPPORTED_GTFS: 'This GTFS service type is not supported yet.',
+}
+
+// The backend sends a count for each GTFS file (stops, routes, trips...). Add them up.
+function totalRecords(data) {
+  if (typeof data.recordsImported === 'number') return data.recordsImported
+  return Object.values(data.recordCounts || {}).reduce((sum, count) => sum + count, 0)
 }
 
 // Checks we can do before sending anything to the backend.
@@ -61,9 +70,9 @@ export default function ImportData() {
       const data = await response.json().catch(() => ({}))
 
       if (response.ok) {
-        setRecordsImported(data.recordsImported)
+        setRecordsImported(totalRecords(data))
       } else {
-        setError(ERROR_MESSAGES[data.error] || 'File could not be read. The old data was kept.')
+        setError(ERROR_MESSAGES[data.code] || 'File could not be read. The old data was kept.')
       }
     } catch {
       setError('Could not reach the server. Try again.')
