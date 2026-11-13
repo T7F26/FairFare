@@ -1,0 +1,50 @@
+.import-data {
+  max-width: 520px;
+  margin: 40px auto;
+  padding: 24px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.import-data h2 {
+  margin-top: 0;
+}
+
+.import-data form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.import-data label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: bold;
+}
+
+.import-data select,
+.import-data input {
+  padding: 8px;
+  font-size: 15px;
+}
+
+.import-data button {
+  align-self: flex-start;
+  padding: 8px 20px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.import-data .message {
+  margin-top: 16px;
+  padding: 12px;
+  border: 2px solid #333;
+  border-radius: 6px;
+}
+
+.import-data .error {
+  border-style: dashed;
+}
