@@ -2,10 +2,10 @@
 const express = require("express");
 const pool = require("./db");
 const cors = require("cors");
+const { validateGtfsUpload } = require("./validation/gtfs");
 require("dotenv").config();
 
 const app = express();
-
 
 app.use(cors()); // Allows your React frontend to talk to this backend
 app.use(express.json()); // Allows the backend to read JSON data sent from the frontend
@@ -26,6 +26,23 @@ app.get("/api/test", async (req, res) => {
   }
 });
 
+// GTFS Upload and Validation Route with Agency Matcher
+app.post("/api/upload", async (req, res) => {
+  try {
+    // Assuming buffer is provided or handled via file upload middleware
+    const buffer = req.file ? req.file.buffer : req.body.buffer; 
+    const selectedAgencyId = req.body.agencyId;
+
+    const agencyMatcher = async (agencies) => {
+      return agencies.some((agency) => agency.id === selectedAgencyId || agency.name === req.body.agencyName);
+    };
+
+    const result = await validateGtfsUpload(buffer, { agencyMatcher });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
