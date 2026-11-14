@@ -35,7 +35,7 @@ function totalRecords(data) {
 }
 
 // Checks we can do before sending anything to the backend.
-export function checkBeforeUpload(agency, file) {
+function checkBeforeUpload(agency, file) {
   if (!agency) return 'Choose an agency.'
   if (!file) return 'Choose a GTFS file.'
   if (!file.name.toLowerCase().endsWith('.zip')) {
