@@ -14,8 +14,10 @@ const AGENCIES = [
   'Durham Region Transit',
 ]
 
-// The backend upload route (built by whoever has the A3 back-end task).
-const UPLOAD_URL = 'http://localhost:4000/api/admin/import'
+// The backend address comes from the VITE_API_URL environment variable,
+// so it also works on the test environment. On your own computer it uses localhost.
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+const UPLOAD_URL = `${API_URL}/api/admin/import`
 
 // Error codes the backend sends back, and the message we show for each.
 // These match Reinaldo's GTFS validation (backend/src/validation/gtfs.js).
