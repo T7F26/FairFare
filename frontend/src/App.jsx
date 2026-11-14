@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import heroImg from './assets/hero.png'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
@@ -6,6 +6,49 @@ import './App.css'
 
 function App() {
   const [count, setCount] = useState(0)
+  const [agencies, setAgencies] = useState([])
+  const [selectedAgency, setSelectedAgency] = useState('')
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    fetch('/api/agencies')
+      .then((res) => res.json())
+      .then((data) => setAgencies(data))
+      .catch((err) => console.error('Failed to load agencies:', err))
+  }, [])
+
+  const handleUpload = () => {
+    if (!selectedAgency) {
+      setMessage('Please select an agency.')
+      return
+    }
+    if (!selectedFile) {
+      setMessage('Please choose a GTFS zip file to upload.')
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('agency', selectedAgency)
+    formData.append('gtfsFile', selectedFile)
+
+    setMessage('Uploading...')
+
+    fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    })
+      .then((res) => {
+        if (res.ok) {
+          setMessage('Data uploaded successfully!')
+        } else {
+          setMessage('Upload failed. Please try again.')
+        }
+      })
+      .catch(() => {
+        setMessage('An error occurred during upload.')
+      })
+  }
 
   return (
     <>
@@ -31,6 +74,45 @@ function App() {
       </section>
 
       <div className="ticks"></div>
+
+      <div className="import-container">
+        <h2>Import GTFS Data</h2>
+        
+        <div className="form-group">
+          <label htmlFor="agency-select">Select Agency:</label>
+          <select
+            id="agency-select"
+            name="agency"
+            value={selectedAgency}
+            onChange={(e) => setSelectedAgency(e.target.value)}
+          >
+            <option value="">-- Choose an agency --</option>
+            {agencies.map((agency) => (
+              <option key={agency.id || agency} value={agency.id || agency}>
+                {agency.name || agency}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="gtfs-file">Upload GTFS Zip File:</label>
+          <input
+            type="file"
+            id="gtfs-file"
+            name="gtfsFile"
+            accept=".zip"
+            onChange={(e) => setSelectedFile(e.target.files[0])}
+          />
+        </div>
+
+        <button id="upload-btn" type="button" onClick={handleUpload}>
+          Upload Data
+        </button>
+        <div id="message-area" className="message-display">
+          {message}
+        </div>
+      </div>
 
       <section id="next-steps">
         <div id="docs">
