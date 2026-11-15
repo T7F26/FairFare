@@ -2,6 +2,7 @@
 const express = require("express");
 const pool = require("./db");
 const cors = require("cors");
+const upload = require("./middleware/upload");
 const { validateGtfsUpload } = require("./validation/gtfs");
 require("dotenv").config();
 
@@ -27,20 +28,24 @@ app.get("/api/test", async (req, res) => {
 });
 
 // GTFS Upload and Validation Route with Agency Matcher
-app.post("/api/upload", async (req, res) => {
+app.post("/api/admin/import", upload.single("file"), async (req, res) => {
   try {
-    // Assuming buffer is provided or handled via file upload middleware
     const buffer = req.file ? req.file.buffer : req.body.buffer; 
-    const selectedAgencyId = req.body.agencyId;
+    
+    const selectedAgency = req.body.agency ? JSON.parse(req.body.agency) : {};
+    const selectedAgencyId = selectedAgency.agency_id || req.body.agencyId;
+    const selectedAgencyName = selectedAgency.agency_name || req.body.agencyName;
 
     const agencyMatcher = async (agencies) => {
-      return agencies.some((agency) => agency.id === selectedAgencyId || agency.name === req.body.agencyName);
+      return agencies.some((agency) => 
+        agency.agency_id === selectedAgencyId || agency.agency_name === selectedAgencyName
+      );
     };
 
     const result = await validateGtfsUpload(buffer, { agencyMatcher });
     res.json(result);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json(error.toJSON ? error.toJSON() : { error: error.message });
   }
 });
 
