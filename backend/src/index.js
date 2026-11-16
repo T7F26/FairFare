@@ -31,14 +31,11 @@ app.get("/api/test", async (req, res) => {
 app.post("/api/admin/import", upload.single("file"), async (req, res) => {
   try {
     const buffer = req.file ? req.file.buffer : req.body.buffer; 
-    
-    const selectedAgency = req.body.agency ? JSON.parse(req.body.agency) : {};
-    const selectedAgencyId = selectedAgency.agency_id || req.body.agencyId;
-    const selectedAgencyName = selectedAgency.agency_name || req.body.agencyName;
+    const selectedAgency = (req.body.agency || "").trim();
 
     const agencyMatcher = async (agencies) => {
       return agencies.some((agency) => 
-        agency.agency_id === selectedAgencyId || agency.agency_name === selectedAgencyName
+        agency.agency_id === selectedAgency || agency.agency_name === selectedAgency
       );
     };
 
