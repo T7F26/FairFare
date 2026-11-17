@@ -3,7 +3,7 @@ const express = require("express");
 const pool = require("./db");
 const cors = require("cors");
 const upload = require("./middleware/upload");
-const { validateGtfsUpload } = require("./validation/gtfs");
+const gtfs = require("./validation/gtfs");
 require("dotenv").config();
 
 const app = express();
@@ -39,14 +39,19 @@ app.post("/api/admin/import", upload.single("file"), async (req, res) => {
       );
     };
 
-    const result = await validateGtfsUpload(buffer, { agencyMatcher });
+    const result = await gtfs.validateGtfsUpload(buffer, { agencyMatcher });
     res.json(result);
   } catch (error) {
     res.status(400).json(error.toJSON ? error.toJSON() : { error: error.message });
   }
 });
 
-const port = process.env.PORT || 4000;
-app.listen(port, () => {
-  console.log(`Backend listening on port ${port}`);
-});
+
+if (require.main === module) {
+  const port = process.env.PORT || 4000;
+  app.listen(port, () => {
+    console.log(`Backend listening on port ${port}`);
+  });
+}
+
+module.exports = app;
