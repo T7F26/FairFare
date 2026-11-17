@@ -40,6 +40,11 @@ thursday VARCHAR, friday VARCHAR,
 saturday VARCHAR, sunday VARCHAR,
 start_date VARCHAR, end_date VARCHAR);
 
+CREATE UNLOGGED TABLE stage_calendar_dates(
+service_id VARCHAR, date VARCHAR,
+exception_type VARCHAR
+);
+
 create or replace function process_gtfs_records(agency_prefix VARCHAR)
 returns void as $$
 begin
@@ -82,8 +87,13 @@ begin
     select agency_prefix ||'_'|| service_id, CAST(monday as integer), CAST(tuesday as integer), CAST(wednesday as integer), CAST(thursday as integer), CAST(friday as integer), CAST(saturday as integer), CAST(sunday as integer), to_date(start_date, 'YYYYMMDD'), to_date(end_date, 'YYYYMMDD')
     from stage_calendar
     on conflict(service_id) do nothing;
+
+    insert into calendar_dates(service_id, date, exception_type)
+    select agency_prefix ||'_'|| service_id, to_date(date, 'YYYYMMDD'), CAST(exception_type as integer)
+    from stage_calendar_dates
+    on conflict(service_id, date) do nothing;
     
-    truncate stage_stops, stage_routes, stage_trips, stage_stop_times, stage_fares, stage_fare_rules, stage_shapes, stage_calendar;
+    truncate stage_stops, stage_routes, stage_trips, stage_stop_times, stage_fares, stage_fare_rules, stage_shapes, stage_calendar,stage_calendar_dates;
 
     raise notice 'GTFS records have been successfully processed for: %', agency_prefix;
 end;

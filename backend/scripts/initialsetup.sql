@@ -1,3 +1,4 @@
+--Please run agencies.sql first
 create table if not exists rider_categories(
     category_id serial primary key,
     category_name varchar(50) unique not null
@@ -65,20 +66,26 @@ create table if not exists calendar(
     start_date date,
     end_date date
 );
+CREATE TABLE IF NOT EXISTS calendar_dates (
+    service_id VARCHAR(100), 
+    date DATE,
+    exception_type INTEGER, 
+    PRIMARY KEY(service_id, date)
+);
 create table if not exists trips(
     trip_id varchar(100) primary key,
     route_id varchar(100) references routes(route_id) on delete cascade,
-    service_id varchar(100) references calendar(service_id) on delete cascade,
+    service_id varchar(100),
     trip_headsign varchar(255),
     shape_id varchar(100)
 );
 create table if not exists stop_times(
-    trip_id varchar(100) references trips(trip_id )on delete cascade,
+    trip_id varchar(100) references trips(trip_id)on delete cascade,
     arrival_time varchar(20),
     departure_time varchar(20),
     stop_id varchar(100) references stops(stop_id) on delete cascade,
-    stop_sequences integer,
-    primary key(trip_id, stop_sequences)
+    stop_sequence integer,
+    primary key(trip_id, stop_sequence)
 );
 create table if not exists favorites(
     journey_id serial primary key,
@@ -115,6 +122,6 @@ create table if not exists fares_log(
     payment_method integer,
     transfers integer,
     transfer_duration integer,
-    agency_id varchar(100)
+    agency_id varchar(100),
     changed_at timestamp
-)
+);
