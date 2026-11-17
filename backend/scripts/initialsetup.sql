@@ -34,17 +34,18 @@ create table if not exists fares(
     agency_id varchar(100) references agencies(agency_id) on delete cascade
 );
 create table if not exists fare_rules(
+    rule_id serial primary key,
     fare_id varchar(100) references fares(fare_id) on delete cascade,
     route_id varchar(100) references routes(route_id) on delete cascade,
     origin_id varchar(100),
-    destination_id varchar(100),
-    primary key(fare_id,route_id)
+    destination_id varchar(100)
 );
 create table if not exists stops(
     stop_id varchar(100) primary key,
     stop_name varchar(255),
     stop_lat numeric(9,6),
-    stop_lon numeric(9,6)
+    stop_lon numeric(9,6),
+    zone_id varchar(100)
 );
 create table if not exists shapes(
     shape_id varchar(100),
@@ -80,7 +81,7 @@ create table if not exists trips(
     shape_id varchar(100)
 );
 create table if not exists stop_times(
-    trip_id varchar(100) references trips(trip_id)on delete cascade,
+    trip_id varchar(100) references trips(trip_id) on delete cascade,
     arrival_time varchar(20),
     departure_time varchar(20),
     stop_id varchar(100) references stops(stop_id) on delete cascade,

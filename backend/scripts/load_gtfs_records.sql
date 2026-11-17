@@ -1,7 +1,8 @@
 -- Create staging tables
 create unlogged table stage_stops(
 stop_id VARCHAR,stop_name VARCHAR,
-stop_lat VARCHAR,stop_lon VARCHAR);
+stop_lat VARCHAR,stop_lon VARCHAR,
+zone_id varchar(100));
 
 create unlogged table stage_routes(
 route_id VARCHAR,agency_id VARCHAR,
@@ -48,8 +49,8 @@ exception_type VARCHAR
 create or replace function process_gtfs_records(agency_prefix VARCHAR)
 returns void as $$
 begin
-    insert into stops(stop_id, stop_name, stop_lat, stop_lon)
-    select agency_prefix ||'_'|| stop_id, stop_name, CAST(stop_lat AS NUMERIC), CAST(stop_lon AS NUMERIC)
+    insert into stops(stop_id, stop_name, stop_lat, stop_lon, zone_id)
+    select agency_prefix ||'_'|| stop_id, stop_name, CAST(stop_lat AS NUMERIC), CAST(stop_lon AS NUMERIC), agency_prefix ||'_'|| nullif(zone_id,'')
     from stage_stops
     on conflict(stop_id) do nothing;
 
@@ -74,9 +75,8 @@ begin
     on conflict(fare_id) do nothing;
 
     insert into fare_rules(fare_id, route_id, origin_id, destination_id)
-    select agency_prefix ||'_'|| fare_id, agency_prefix ||'_'|| route_id, origin_id, destination_id
-    from stage_fare_rules
-    on conflict(fare_id, route_id) do nothing;
+    select agency_prefix ||'_'|| fare_id, agency_prefix ||'_'|| nullif(route_id,''), origin_id, destination_id
+    from stage_fare_rules;
 
     insert into shapes(shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled)
     select agency_prefix ||'_'|| shape_id, CAST(shape_pt_lat as numeric), CAST(shape_pt_lon as numeric), CAST(shape_pt_sequence as integer), CAST(nullif(shape_dist_traveled,'') as numeric)
