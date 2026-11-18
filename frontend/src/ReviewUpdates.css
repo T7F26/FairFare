@@ -1,0 +1,46 @@
+.review-updates {
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 24px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.review-updates h2 {
+  margin-top: 0;
+}
+
+.review-updates table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.review-updates th,
+.review-updates td {
+  padding: 8px 10px;
+  border: 1px solid #555;
+}
+
+.review-updates th {
+  font-weight: bold;
+}
+
+.review-updates .new-price {
+  font-weight: bold;
+}
+
+.review-updates .note {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.review-updates .message {
+  padding: 12px;
+  border: 2px solid #333;
+  border-radius: 6px;
+}
+
+.review-updates .error {
+  border-style: dashed;
+}
