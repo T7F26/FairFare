@@ -1,7 +1,8 @@
 -- Create staging tables
 create unlogged table stage_stops(
 stop_id VARCHAR,stop_name VARCHAR,
-stop_lat VARCHAR,stop_lon VARCHAR);
+stop_lat VARCHAR,stop_lon VARCHAR,
+zone_id varchar(100));
 
 create unlogged table stage_routes(
 route_id VARCHAR,agency_id VARCHAR,
@@ -40,11 +41,16 @@ thursday VARCHAR, friday VARCHAR,
 saturday VARCHAR, sunday VARCHAR,
 start_date VARCHAR, end_date VARCHAR);
 
+CREATE UNLOGGED TABLE stage_calendar_dates(
+service_id VARCHAR, date VARCHAR,
+exception_type VARCHAR
+);
+
 create or replace function process_gtfs_records(agency_prefix VARCHAR)
 returns void as $$
 begin
-    insert into stops(stop_id, stop_name, stop_lat, stop_lon)
-    select agency_prefix ||'_'|| stop_id, stop_name, CAST(stop_lat AS NUMERIC), CAST(stop_lon AS NUMERIC)
+    insert into stops(stop_id, stop_name, stop_lat, stop_lon, zone_id)
+    select agency_prefix ||'_'|| stop_id, stop_name, CAST(stop_lat AS NUMERIC), CAST(stop_lon AS NUMERIC), agency_prefix ||'_'|| nullif(zone_id,'')
     from stage_stops
     on conflict(stop_id) do nothing;
 
@@ -69,9 +75,8 @@ begin
     on conflict(fare_id) do nothing;
 
     insert into fare_rules(fare_id, route_id, origin_id, destination_id)
-    select agency_prefix ||'_'|| fare_id, agency_prefix ||'_'|| route_id, origin_id, destination_id
-    from stage_fare_rules
-    on conflict(fare_id, route_id) do nothing;
+    select agency_prefix ||'_'|| fare_id, agency_prefix ||'_'|| nullif(route_id,''), origin_id, destination_id
+    from stage_fare_rules;
 
     insert into shapes(shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled)
     select agency_prefix ||'_'|| shape_id, CAST(shape_pt_lat as numeric), CAST(shape_pt_lon as numeric), CAST(shape_pt_sequence as integer), CAST(nullif(shape_dist_traveled,'') as numeric)
@@ -82,8 +87,13 @@ begin
     select agency_prefix ||'_'|| service_id, CAST(monday as integer), CAST(tuesday as integer), CAST(wednesday as integer), CAST(thursday as integer), CAST(friday as integer), CAST(saturday as integer), CAST(sunday as integer), to_date(start_date, 'YYYYMMDD'), to_date(end_date, 'YYYYMMDD')
     from stage_calendar
     on conflict(service_id) do nothing;
+
+    insert into calendar_dates(service_id, date, exception_type)
+    select agency_prefix ||'_'|| service_id, to_date(date, 'YYYYMMDD'), CAST(exception_type as integer)
+    from stage_calendar_dates
+    on conflict(service_id, date) do nothing;
     
-    truncate stage_stops, stage_routes, stage_trips, stage_stop_times, stage_fares, stage_fare_rules, stage_shapes, stage_calendar;
+    truncate stage_stops, stage_routes, stage_trips, stage_stop_times, stage_fares, stage_fare_rules, stage_shapes, stage_calendar,stage_calendar_dates;
 
     raise notice 'GTFS records have been successfully processed for: %', agency_prefix;
 end;
