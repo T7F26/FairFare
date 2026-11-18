@@ -1,52 +1,169 @@
-//This file connects the frontend and backend
-const express = require("express");
-const pool = require("./db");
-const cors = require("cors");
-const upload = require("./middleware/upload");
-const gtfs = require("./validation/gtfs");
+"use strict";
+// FairFare Backend
+// GTFS Upload and Database Import - Issue #16
+
+// Load environment variables before the database connection
 require("dotenv").config();
+
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const pool = require("./db");
+// Keep the module objects (not destructured) so the unit tests can mock them
+const gtfs = require("./validation/gtfs");
+const gtfsImport = require("./gtfsImport");
 
 const app = express();
 
-app.use(cors()); // Allows your React frontend to talk to this backend
-app.use(express.json()); // Allows the backend to read JSON data sent from the frontend
+// TODO: Add authentication and admin authorization
+// before enabling this endpoint in production.
+// GTFS ZIP upload configuration (50 MB maximum)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024,
+    files: 1,
+    fields: 1,
+  },
+});
 
-// This is simply a test route to make sure all things are running as intended
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Agency display names (from the dropdown) -> database IDs
+const AGENCY_IDS = {
+  TTC: "ttc",
+  "GO Transit": "gotransit",
+  MiWay: "miway",
+  "York Region Transit": "yrt",
+  "Brampton Transit": "brampton_transit",
+  "Durham Region Transit": "durham_region_transit",
+};
+
+// Agency names that can appear in each agency's GTFS agency.txt
+const AGENCY_NAMES = {
+  ttc: ["Toronto Transit Commission", "TTC"],
+  gotransit: ["GO Transit", "GO Transit (Metrolinx)"],
+  miway: ["MiWay"],
+  yrt: ["York Region Transit", "YRT"],
+  brampton_transit: ["Brampton Transit"],
+  durham_region_transit: ["Durham Region Transit"],
+};
+
+// Backend and database connection test
 app.get("/api/test", async (req, res) => {
   try {
-    const result = await pool.query("SELECT NOW() as current_time");
-    res.json({ 
-      status: "ok", 
+    const result = await pool.query("SELECT NOW() AS current_time");
+    res.json({
+      status: "ok",
       message: "FairFare backend is running!",
       database: "Connected",
-      time: result.rows[0].current_time
+      time: result.rows[0].current_time,
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ status: "error", message: "Database connection failed" });
-  }
-});
-
-// GTFS Upload and Validation Route with Agency Matcher
-app.post("/api/admin/import", upload.single("file"), async (req, res) => {
-  try {
-    const buffer = req.file ? req.file.buffer : req.body.buffer; 
-    const selectedAgency = (req.body.agency || "").trim();
-
-    const agencyMatcher = async (agencies) => {
-      return agencies.some((agency) => 
-        agency.agency_id === selectedAgency || agency.agency_name === selectedAgency
-      );
-    };
-
-    const result = await gtfs.validateGtfsUpload(buffer, { agencyMatcher });
-    res.json(result);
   } catch (error) {
-    res.status(400).json(error.toJSON ? error.toJSON() : { error: error.message });
+    console.error("Database connection error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Database connection failed",
+    });
   }
 });
 
+// GTFS Upload and Import - Issue #16
+app.post("/api/admin/import", (req, res) => {
+  upload.single("file")(req, res, async (uploadError) => {
+    // Handle upload errors
+    if (uploadError) {
+      if (uploadError.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({
+          code: "FILE_TOO_LARGE",
+          message: "File is too large. Maximum size is 50 MB.",
+        });
+      }
+      return res.status(400).json({
+        code: "FILE_UNREADABLE",
+        message: "File could not be read.",
+      });
+    }
 
+    try {
+      // Make sure a file was uploaded
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({
+          code: "FILE_UNREADABLE",
+          message: "Please choose a GTFS ZIP file.",
+        });
+      }
+
+      // Convert the selected agency to its database ID
+      const selectedAgency = String(req.body?.agency || "").trim();
+      const agencyId =
+        AGENCY_IDS[selectedAgency] ||
+        (AGENCY_NAMES[selectedAgency] ? selectedAgency : null);
+
+      if (!agencyId) {
+        return res.status(400).json({
+          code: "AGENCY_MISMATCH",
+          message: "Please choose a valid agency.",
+        });
+      }
+
+      // Check that the selected agency exists in the database
+      const agencyResult = await pool.query(
+        "SELECT agency_id, agency_name FROM agencies WHERE agency_id = $1",
+        [agencyId]
+      );
+      if (agencyResult.rowCount === 0) {
+        return res.status(400).json({
+          code: "AGENCY_MISMATCH",
+          message: "Selected agency was not found.",
+        });
+      }
+
+      // Match the agency in the uploaded file to the selected agency
+      const agencyMatcher = async (agencies) => {
+        const validNames = [
+          ...(AGENCY_NAMES[agencyId] || []),
+          agencyResult.rows[0].agency_name,
+        ].map((name) => name.toLowerCase());
+
+        return (
+          agencies.length > 0 &&
+          agencies.every((agency) => {
+            const fileAgencyId = String(agency.agency_id || "").trim().toLowerCase();
+            const fileAgencyName = String(agency.agency_name || "").trim().toLowerCase();
+            return fileAgencyId === agencyId || validNames.includes(fileAgencyName);
+          })
+        );
+      };
+
+      // Validate the ZIP before writing anything to the database
+      const validated = await gtfs.validateGtfsUpload(req.file.buffer, {
+        agencyMatcher,
+      });
+
+      // Save the validated records using the staging tables
+      const imported = await gtfsImport.importGtfs(validated, agencyId);
+
+      return res.status(200).json({ valid: true, ...imported });
+    } catch (error) {
+      // GTFS validation errors (not GTFS, wrong agency, etc.)
+      if (typeof error.toJSON === "function" && typeof error.code === "string") {
+        return res.status(400).json(error.toJSON());
+      }
+
+      // Database or unexpected errors (the transaction is rolled back)
+      console.error("GTFS import failed:", error);
+      return res.status(500).json({
+        code: "IMPORT_FAILED",
+        message: "GTFS import failed. No changes were saved.",
+      });
+    }
+  });
+});
+
+// Start the server only when this file is run directly (not in tests)
 if (require.main === module) {
   const port = process.env.PORT || 4000;
   app.listen(port, () => {
