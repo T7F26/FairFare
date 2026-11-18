@@ -83,6 +83,14 @@ test("CSV accepts UTF-8 BOM, CRLF, quoted commas and escaped quotation marks", a
   assert.equal(result.tables["stops.txt"][0].stop_name, 'Central, "Station"');
 });
 
+test("stop coordinates may have leading and trailing spaces", async () => {
+  const files = fixture();
+  // Some GTFS feeds pad both coordinate fields with spaces.
+  files["stops.txt"] = files["stops.txt"].replace("43.59,-79.64", "  43.59  ,  -79.64  ");
+  const result = await validateGtfsUpload(await zip(files));
+  assert.equal(result.valid, true);
+});
+
 // Rejection cases remove or corrupt one requirement at a time.
 // Starting from the same valid feed makes the reason for each failure easier to see.
 test("missing core files or both service-calendar files are invalid GTFS", async () => {
@@ -168,6 +176,9 @@ test("invalid coordinates, calendar values, route types and malformed or backwar
   for (const [file, from, to] of [
     ["stops.txt", "43.59", "91"],
     ["stops.txt", "43.59", "0x10"],
+    ["stops.txt", "43.59", "   "],
+    ["stops.txt", "-79.64", "  0x10  "],
+    ["stops.txt", "-79.64", "  -181  "],
     ["calendar.txt", "20260101", "20260230"],
     ["calendar.txt", "WK,1,1", "WK,2,1"],
     ["routes.txt", "R1,A1,7,3", "R1,A1,7,99"],

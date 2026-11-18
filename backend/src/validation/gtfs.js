@@ -213,7 +213,9 @@ function validateTables(tables) {
     if (["0", "1", "2"].includes(type)) {
       check(row.stop_name?.trim(), "Missing stop_name");
       for (const [field, max] of [["stop_lat", 90], ["stop_lon", 180]]) {
-        check(typeof row[field] === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(row[field]) && Number.isFinite(Number(row[field])) && Math.abs(Number(row[field])) <= max, `Invalid ${field}`);
+        // Some feeds pad coordinate values with spaces.
+        const value = typeof row[field] === "string" ? row[field].trim() : "";
+        check(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= max, `Invalid ${field}`);
       }
     }
     if (row.parent_station) check(stopMap.has(row.parent_station) && row.parent_station !== row.stop_id, "Unknown or self parent_station");
