@@ -74,7 +74,7 @@ async function loadStage(client, config, rows) {
   }
 }
 
-// Import validated GTFS data
+// Stage a validated GTFS upload for review.
 async function importGtfs(validatedResult, agencyPrefix) {
   if (!validatedResult?.valid || !validatedResult.tables) {
     throw new Error("GTFS data must be validated before importing");
@@ -93,7 +93,8 @@ async function importGtfs(validatedResult, agencyPrefix) {
     // Prevent simultaneous imports from mixing staging records
     await client.query("SELECT pg_advisory_xact_lock($1, $2)", [16421, 16]);
 
-    // Clear leftover staging data before importing
+    // Staging is shared. Replace the previous upload in the same transaction
+    // so a failed upload can roll back both the truncate and the inserts.
     await client.query(`
       TRUNCATE
         stage_stops, stage_routes, stage_trips,
@@ -110,11 +111,9 @@ async function importGtfs(validatedResult, agencyPrefix) {
       recordsImported += rows.length;
     }
 
-    // Move staging records into the main tables (Ajani's SQL function)
-    await client.query("SELECT process_gtfs_records($1)", [agencyPrefix]);
-
+    // Commit only the staging rows. Publish will process them separately.
     await client.query("COMMIT");
-    return { recordsImported, recordCounts };
+    return { status: "pending_review", recordsImported, recordCounts };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
