@@ -12,6 +12,7 @@ const pool = require("./db");
 // Keep the module objects (not destructured) so the unit tests can mock them
 const gtfs = require("./validation/gtfs");
 const gtfsImport = require("./gtfsImport");
+const fareChanges = require("./fareChanges");
 
 const app = express();
 
@@ -161,6 +162,20 @@ app.post("/api/admin/import", (req, res) => {
       });
     }
   });
+});
+
+// Review Updates: fare changes in the latest pending import - Issue #23
+app.get("/api/admin/fare-changes", async (req, res) => {
+  try {
+    const result = await fareChanges.listFareChanges();
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Loading fare changes failed:", error);
+    return res.status(500).json({
+      code: "FARE_CHANGES_FAILED",
+      message: "Could not load fare changes.",
+    });
+  }
 });
 
 // Start the server only when this file is run directly (not in tests)
