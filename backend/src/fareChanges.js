@@ -12,7 +12,7 @@ async function listFareChanges() {
 
   // Nothing has been uploaded yet, so there is nothing to review.
   if (pending.rowCount === 0) {
-    return { agencyId: null, uploadedAt: null, changes: [] };
+    return { agencyId: null, uploadedAt: null, count: 0, changes: [] };
   }
 
   const { agency_id: agencyId, uploaded_at: uploadedAt } = pending.rows[0];
@@ -34,7 +34,7 @@ async function listFareChanges() {
     changed_type: row.changed_type,
   }));
 
-  return { agencyId, uploadedAt, changes };
+  return { agencyId, uploadedAt, count: changes.length, changes };
 }
 
 module.exports = { listFareChanges };

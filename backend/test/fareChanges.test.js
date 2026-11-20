@@ -25,7 +25,7 @@ function mockQueries(t, { pending, changes = [], failOn } = {}) {
 test("no pending upload returns an empty list without comparing fares", async (t) => {
   const { calls } = mockQueries(t);
   const result = await listFareChanges();
-  assert.deepEqual(result, { agencyId: null, uploadedAt: null, changes: [] });
+  assert.deepEqual(result, { agencyId: null, uploadedAt: null, count: 0, changes: [] });
   assert.equal(calls.length, 1);
 });
 
@@ -47,6 +47,7 @@ test("fare changes for the pending agency are returned in the Review Updates for
   assert.equal(result.agencyId, "miway");
   assert.equal(result.uploadedAt, uploadedAt);
   assert.equal(result.changes.length, 3);
+  assert.equal(result.count, 3);
   // Each row has the fields the screen reads: fare_id, agency_id, old_price, new_price.
   assert.deepEqual(result.changes[0], {
     fare_id: "miway_A", agency_id: "miway", old_price: "3.10", new_price: "3.50",
@@ -63,6 +64,7 @@ test("a pending upload with no fare changes returns an empty list", async (t) =>
   const result = await listFareChanges();
   assert.equal(result.agencyId, "ttc");
   assert.deepEqual(result.changes, []);
+  assert.equal(result.count, 0);
 });
 
 test("database errors are passed on to the caller", async (t) => {
