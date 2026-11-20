@@ -111,6 +111,16 @@ async function importGtfs(validatedResult, agencyPrefix) {
       recordsImported += rows.length;
     }
 
+    // Remember which agency the pending upload belongs to (#23), in the same
+    // transaction so it always matches what is in staging.
+    await client.query(
+      `INSERT INTO pending_import (id, agency_id, uploaded_at)
+       VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE
+       SET agency_id = EXCLUDED.agency_id, uploaded_at = EXCLUDED.uploaded_at`,
+      [agencyPrefix]
+    );
+
     // Commit only the staging rows. Publish will process them separately.
     await client.query("COMMIT");
     return { status: "pending_review", recordsImported, recordCounts };
