@@ -1,3 +1,4 @@
+
 -- Create staging tables
 create unlogged table stage_stops(
 stop_id VARCHAR,stop_name VARCHAR,
@@ -54,8 +55,9 @@ begin
     from stage_stops
     on conflict(stop_id) do nothing;
 
+    -- Fix #134: Use the existing agency prefix as the agency ID
     insert into routes(route_id, agency_id, route_short_name, route_long_name, route_type)
-    select agency_prefix ||'_'|| route_id, agency_prefix ||'_'|| nullif(agency_id,''), route_short_name, route_long_name, CAST(route_type as integer)
+    select agency_prefix ||'_'|| route_id, agency_prefix, route_short_name, route_long_name, CAST(route_type as integer)
     from stage_routes
     on conflict(route_id) do nothing;
 
@@ -69,8 +71,9 @@ begin
     from stage_stop_times
     on conflict(trip_id, stop_sequence) do nothing;
 
+    -- Fix #134: Use the same agency ID for fares
     insert into fares(fare_id, price, currency_type, payment_method, transfers, transfer_duration, agency_id)
-    select agency_prefix ||'_'|| fare_id, CAST(price as numeric), currency_type, cast(payment_method as integer), cast(nullif(transfers,'') as integer), cast(nullif(transfer_duration,'') as integer), agency_prefix ||'_'|| nullif(agency_id,'')
+    select agency_prefix ||'_'|| fare_id, CAST(price as numeric), currency_type, cast(payment_method as integer), cast(nullif(transfers,'') as integer), cast(nullif(transfer_duration,'') as integer), agency_prefix
     from stage_fares
     on conflict(fare_id) do nothing;
 
@@ -92,7 +95,7 @@ begin
     select agency_prefix ||'_'|| service_id, to_date(date, 'YYYYMMDD'), CAST(exception_type as integer)
     from stage_calendar_dates
     on conflict(service_id, date) do nothing;
-    
+
     truncate stage_stops, stage_routes, stage_trips, stage_stop_times, stage_fares, stage_fare_rules, stage_shapes, stage_calendar,stage_calendar_dates;
 
     raise notice 'GTFS records have been successfully processed for: %', agency_prefix;
