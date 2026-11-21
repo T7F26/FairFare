@@ -1,6 +1,5 @@
 "use strict";
 // FairFare Backend
-// GTFS Upload and Database Import - Issue #16
 
 // Load environment variables before the database connection
 require("dotenv").config();
@@ -174,6 +173,29 @@ app.get("/api/admin/fare-changes", async (req, res) => {
     return res.status(500).json({
       code: "FARE_CHANGES_FAILED",
       message: "Could not load fare changes.",
+    });
+  }
+});
+
+// Approve or undo a fare change status - Issue #28
+app.patch("/api/admin/fare-changes/:fareId/status", async (req, res) => {
+  try {
+    const result = await fareChanges.setFareChangeStatus(
+      req.params.fareId,
+      req.body?.status
+    );
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
+    console.error("Updating fare change status failed:", error);
+    return res.status(500).json({
+      code: "FARE_STATUS_UPDATE_FAILED",
+      message: "Could not save fare change status.",
     });
   }
 });

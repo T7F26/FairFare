@@ -1,9 +1,6 @@
 "use strict";
-// FairFare GTFS database import
-// Issue #16: Save validated GTFS records to PostgreSQL
 const pool = require("./db");
 
-// GTFS files and their matching staging tables
 const STAGING = [
   {
     file: "stops.txt",
@@ -48,10 +45,8 @@ const STAGING = [
     table: "stage_calendar_dates",
     columns: ["service_id", "date", "exception_type"],
   },
-  // TODO (follow-up): fares, fare_rules and shapes
 ];
 
-// Insert rows in batches to avoid oversized SQL queries
 async function loadStage(client, config, rows) {
   const batchSize = 250;
   for (let start = 0; start < rows.length; start += batchSize) {
@@ -74,7 +69,6 @@ async function loadStage(client, config, rows) {
   }
 }
 
-// Stage a validated GTFS upload for review.
 async function importGtfs(validatedResult, agencyPrefix) {
   if (!validatedResult?.valid || !validatedResult.tables) {
     throw new Error("GTFS data must be validated before importing");
@@ -90,11 +84,8 @@ async function importGtfs(validatedResult, agencyPrefix) {
   try {
     await client.query("BEGIN");
 
-    // Prevent simultaneous imports from mixing staging records
     await client.query("SELECT pg_advisory_xact_lock($1, $2)", [16421, 16]);
 
-    // Staging is shared. Replace the previous upload in the same transaction
-    // so a failed upload can roll back both the truncate and the inserts.
     await client.query(`
       TRUNCATE
         stage_stops, stage_routes, stage_trips,
@@ -111,8 +102,6 @@ async function importGtfs(validatedResult, agencyPrefix) {
       recordsImported += rows.length;
     }
 
-    // Remember which agency the pending upload belongs to (#23), in the same
-    // transaction so it always matches what is in staging.
     await client.query(
       `INSERT INTO pending_import (id, agency_id, uploaded_at)
        VALUES (1, $1, NOW())
@@ -121,7 +110,11 @@ async function importGtfs(validatedResult, agencyPrefix) {
       [agencyPrefix]
     );
 
-    // Commit only the staging rows. Publish will process them separately.
+    await client.query(
+      "DELETE FROM fare_change_statuses WHERE agency_id = $1",
+      [agencyPrefix]
+    );
+
     await client.query("COMMIT");
     return { status: "pending_review", recordsImported, recordCounts };
   } catch (error) {

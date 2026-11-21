@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const pool = require("../src/db");
 const { listFareChanges } = require("../src/fareChanges");
 
-// Fakes pool.query: answers the pending_import lookup, then compare_fares.
 function mockQueries(t, { pending, changes = [], failOn } = {}) {
   const calls = [];
   const query = t.mock.method(pool, "query", async (sql, parameters = []) => {
@@ -40,7 +39,6 @@ test("fare changes for the pending agency are returned in the Review Updates for
     ],
   });
   const result = await listFareChanges();
-  // compare_fares is called once, with the pending agency as a bound parameter.
   assert.equal(calls.length, 2);
   assert.match(calls[1].sql, /FROM compare_fares\(\$1\)/);
   assert.deepEqual(calls[1].parameters, ["miway"]);
@@ -48,15 +46,17 @@ test("fare changes for the pending agency are returned in the Review Updates for
   assert.equal(result.uploadedAt, uploadedAt);
   assert.equal(result.changes.length, 3);
   assert.equal(result.count, 3);
-  // Each row has the fields the screen reads: fare_id, agency_id, old_price, new_price.
   assert.deepEqual(result.changes[0], {
     fare_id: "miway_A", agency_id: "miway", old_price: "3.10", new_price: "3.50",
     currency_type: "CAD", transfer_duration: "7200", changed_type: "Price changed",
+    status: "waiting",
   });
   assert.equal(result.changes[1].new_price, null);
   assert.equal(result.changes[1].changed_type, "Fare removed");
+  assert.equal(result.changes[1].status, "waiting");
   assert.equal(result.changes[2].old_price, null);
   assert.equal(result.changes[2].changed_type, "New fare");
+  assert.equal(result.changes[2].status, "waiting");
 });
 
 test("a pending upload with no fare changes returns an empty list", async (t) => {
