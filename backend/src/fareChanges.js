@@ -1,5 +1,4 @@
 "use strict";
-// Review Updates: fare changes in the latest pending GTFS import - Issue #23 & #28
 const pool = require("./db");
 
 const VALID_STATUSES = new Set(["approved", "waiting"]);
@@ -18,8 +17,9 @@ async function getActivePendingImport() {
 }
 
 // Lists the fare changes for the agency whose upload is waiting in staging.
-// Uses compare_fares (backend/scripts/compare_new_fares.sql) and the
-// pending_import table (backend/scripts/pending_import.sql).
+// Uses compare_fares (backend/scripts/compare_new_fares.sql), the
+// pending_import table (backend/scripts/pending_import.sql), and
+// fare_change_statuses (backend/scripts/fare_change_statuses.sql).
 async function listFareChanges() {
   const pending = await getActivePendingImport();
 
@@ -29,13 +29,21 @@ async function listFareChanges() {
 
   const { agencyId, uploadedAt } = pending;
   const result = await pool.query(
-    `SELECT fare_id, new_price, old_price, currency_type, transfer_duration, changed_type
-     FROM compare_fares($1)
-     ORDER BY fare_id`,
+    `SELECT
+       cf.fare_id,
+       cf.new_price,
+       cf.old_price,
+       cf.currency_type,
+       cf.transfer_duration,
+       cf.changed_type,
+       COALESCE(fcs.status, 'waiting') AS status
+     FROM compare_fares($1) cf
+     LEFT JOIN fare_change_statuses fcs
+       ON fcs.agency_id = $1 AND fcs.fare_id = cf.fare_id
+     ORDER BY cf.fare_id`,
     [agencyId]
   );
 
-  // Field names match the Review Updates screen (frontend/src/ReviewUpdates.jsx).
   const changes = result.rows.map((row) => ({
     fare_id: row.fare_id,
     agency_id: agencyId,
@@ -44,6 +52,7 @@ async function listFareChanges() {
     currency_type: row.currency_type,
     transfer_duration: row.transfer_duration,
     changed_type: row.changed_type,
+    status: row.status || "waiting",
   }));
 
   return { agencyId, uploadedAt, count: changes.length, changes };
@@ -64,7 +73,6 @@ async function areAllFareChangesApproved(agencyId) {
   return totalCount > 0 && totalCount === approvedCount;
 }
 
-// Saves 'approved' or 'waiting' for a fare change and returns whether all are approved.
 async function setFareChangeStatus(fareId, status) {
   const normalizedFareId = String(fareId || "").trim();
   const normalizedStatus = String(status || "").trim().toLowerCase();
