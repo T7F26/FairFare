@@ -61,6 +61,7 @@ test("listFareChanges returns expected fare comparison rows for an agency", asyn
     currency_type: "CAD",
     transfer_duration: "7200",
     changed_type: "Price changed",
+    status: "waiting",
   });
 });
 
@@ -108,8 +109,10 @@ test("listFareChanges returns new and removed fare rows", async (t) => {
   assert.equal(result.count, 2);
   assert.equal(result.changes[0].changed_type, "New fare");
   assert.equal(result.changes[0].old_price, null);
+  assert.equal(result.changes[0].status, "waiting");
   assert.equal(result.changes[1].changed_type, "Fare removed");
   assert.equal(result.changes[1].new_price, null);
+  assert.equal(result.changes[1].status, "waiting");
 });
 
 test("listFareChanges returns empty response when there is no pending import", async (t) => {

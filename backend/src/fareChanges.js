@@ -1,29 +1,49 @@
 "use strict";
-// Review Updates: fare changes in the latest pending GTFS import - Issue #23
 const pool = require("./db");
 
-// Lists the fare changes for the agency whose upload is waiting in staging.
-// Uses compare_fares (backend/scripts/compare_new_fares.sql) and the
-// pending_import table (backend/scripts/pending_import.sql).
-async function listFareChanges() {
+const VALID_STATUSES = new Set(["approved", "waiting"]);
+
+async function getActivePendingImport() {
   const pending = await pool.query(
     "SELECT agency_id, uploaded_at FROM pending_import WHERE id = 1"
   );
-
-  // Nothing has been uploaded yet, so there is nothing to review.
   if (pending.rowCount === 0) {
+    return null;
+  }
+  return {
+    agencyId: pending.rows[0].agency_id,
+    uploadedAt: pending.rows[0].uploaded_at,
+  };
+}
+
+// Lists the fare changes for the agency whose upload is waiting in staging.
+// Uses compare_fares (backend/scripts/compare_new_fares.sql), the
+// pending_import table (backend/scripts/pending_import.sql), and
+// fare_change_statuses (backend/scripts/fare_change_statuses.sql).
+async function listFareChanges() {
+  const pending = await getActivePendingImport();
+
+  if (!pending) {
     return { agencyId: null, uploadedAt: null, count: 0, changes: [] };
   }
 
-  const { agency_id: agencyId, uploaded_at: uploadedAt } = pending.rows[0];
+  const { agencyId, uploadedAt } = pending;
   const result = await pool.query(
-    `SELECT fare_id, new_price, old_price, currency_type, transfer_duration, changed_type
-     FROM compare_fares($1)
-     ORDER BY fare_id`,
+    `SELECT
+       cf.fare_id,
+       cf.new_price,
+       cf.old_price,
+       cf.currency_type,
+       cf.transfer_duration,
+       cf.changed_type,
+       COALESCE(fcs.status, 'waiting') AS status
+     FROM compare_fares($1) cf
+     LEFT JOIN fare_change_statuses fcs
+       ON fcs.agency_id = $1 AND fcs.fare_id = cf.fare_id
+     ORDER BY cf.fare_id`,
     [agencyId]
   );
 
-  // Field names match the Review Updates screen (frontend/src/ReviewUpdates.jsx).
   const changes = result.rows.map((row) => ({
     fare_id: row.fare_id,
     agency_id: agencyId,
@@ -32,9 +52,82 @@ async function listFareChanges() {
     currency_type: row.currency_type,
     transfer_duration: row.transfer_duration,
     changed_type: row.changed_type,
+    status: row.status || "waiting",
   }));
 
   return { agencyId, uploadedAt, count: changes.length, changes };
 }
 
-module.exports = { listFareChanges };
+async function areAllFareChangesApproved(agencyId) {
+  const result = await pool.query(
+    `SELECT
+       COUNT(*)::int AS total_count,
+       COUNT(*) FILTER (WHERE COALESCE(fcs.status, 'waiting') = 'approved')::int AS approved_count
+     FROM compare_fares($1) cf
+     LEFT JOIN fare_change_statuses fcs
+       ON fcs.agency_id = $1 AND fcs.fare_id = cf.fare_id`,
+    [agencyId]
+  );
+
+  const { total_count: totalCount, approved_count: approvedCount } = result.rows[0];
+  return totalCount > 0 && totalCount === approvedCount;
+}
+
+async function setFareChangeStatus(fareId, status) {
+  const normalizedFareId = String(fareId || "").trim();
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+
+  if (!normalizedFareId) {
+    const err = new Error("Fare ID is required.");
+    err.statusCode = 400;
+    err.code = "INVALID_FARE_ID";
+    throw err;
+  }
+
+  if (!VALID_STATUSES.has(normalizedStatus)) {
+    const err = new Error("Status must be 'approved' or 'waiting'.");
+    err.statusCode = 400;
+    err.code = "INVALID_STATUS";
+    throw err;
+  }
+
+  const pending = await getActivePendingImport();
+  if (!pending) {
+    const err = new Error("No pending GTFS import found.");
+    err.statusCode = 404;
+    err.code = "NO_PENDING_IMPORT";
+    throw err;
+  }
+
+  const { agencyId } = pending;
+
+  const existsResult = await pool.query(
+    "SELECT 1 FROM compare_fares($1) WHERE fare_id = $2",
+    [agencyId, normalizedFareId]
+  );
+  if (existsResult.rowCount === 0) {
+    const err = new Error("Fare change not found in current pending import.");
+    err.statusCode = 404;
+    err.code = "FARE_NOT_FOUND";
+    throw err;
+  }
+
+  await pool.query(
+    `INSERT INTO fare_change_statuses (agency_id, fare_id, status, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (agency_id, fare_id)
+     DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
+    [agencyId, normalizedFareId, normalizedStatus]
+  );
+
+  const allApproved = await areAllFareChangesApproved(agencyId);
+
+  return {
+    fare_id: normalizedFareId,
+    agency_id: agencyId,
+    status: normalizedStatus,
+    allApproved,
+  };
+}
+
+module.exports = { listFareChanges, setFareChangeStatus };
