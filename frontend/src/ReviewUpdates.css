@@ -44,3 +44,16 @@
 .review-updates .error {
   border-style: dashed;
 }
+
+.review-updates .summary {
+  font-weight: bold;
+}
+
+.review-updates .status.approved {
+  font-weight: bold;
+}
+
+.review-updates td button {
+  padding: 4px 12px;
+  cursor: pointer;
+}
