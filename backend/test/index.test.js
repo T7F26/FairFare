@@ -6,6 +6,7 @@ const gtfsModule = require("../src/validation/gtfs");
 const gtfsImport = require("../src/gtfsImport");
 const pool = require("../src/db");
 const app = require("../src/index");
+const { listPublishedFares } = require("../src/publishedFares");
 
 // The route checks the agencies table first, so fake that query
 function mockAgencyLookup(t) {
@@ -82,4 +83,98 @@ test("POST /api/admin/import - no agency chosen", async () => {
 
   assert.strictEqual(response.status, 400);
   assert.strictEqual(response.body.code, "AGENCY_MISMATCH");
+});
+
+function mockFareReviewDatabase(t) {
+  const agencyId = "miway";
+  const uploadedAt = "2026-11-20T18:00:00.000Z";
+  const publishedFare = {
+    fare_id: "miway_adult", agency_id: agencyId, price: "3.10", currency_type: "CAD",
+    payment_method: 0, transfers: null, transfer_duration: 7200,
+  };
+  const pendingFare = {
+    fare_id: publishedFare.fare_id, old_price: publishedFare.price, new_price: "3.50",
+    currency_type: "CAD", transfer_duration: 7200, changed_type: "Price changed",
+  };
+  let status = "waiting";
+  const statusWrites = [];
+  const comparisonSource = "FROM compare_fares($1) cf LEFT JOIN fare_change_statuses fcs "
+    + "ON fcs.agency_id = $1 AND fcs.fare_id = cf.fare_id";
+
+  // Allow only reads and approval status writes, so any publication query fails the test.
+  const query = t.mock.method(pool, "query", async (sql, parameters = []) => {
+    const statement = sql.trim().replace(/\s+/g, " ");
+    if (statement === "SELECT agency_id, uploaded_at FROM pending_import WHERE id = 1") {
+      assert.deepStrictEqual(parameters, []);
+      return { rowCount: 1, rows: [{ agency_id: agencyId, uploaded_at: uploadedAt }] };
+    }
+    if (statement === "SELECT 1 FROM compare_fares($1) WHERE fare_id = $2") {
+      assert.deepStrictEqual(parameters, [agencyId, pendingFare.fare_id]);
+      return { rowCount: 1, rows: [{}] };
+    }
+    if (statement === "INSERT INTO fare_change_statuses (agency_id, fare_id, status, updated_at) "
+      + "VALUES ($1, $2, $3, NOW()) ON CONFLICT (agency_id, fare_id) "
+      + "DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()") {
+      assert.deepStrictEqual(parameters.slice(0, 2), [agencyId, pendingFare.fare_id]);
+      status = parameters[2];
+      statusWrites.push([...parameters]);
+      return { rowCount: 1, rows: [] };
+    }
+    if (statement === "SELECT COUNT(*)::int AS total_count, "
+      + "COUNT(*) FILTER (WHERE COALESCE(fcs.status, 'waiting') = 'approved')::int AS approved_count "
+      + comparisonSource) {
+      assert.deepStrictEqual(parameters, [agencyId]);
+      return { rowCount: 1, rows: [{ total_count: 1, approved_count: status === "approved" ? 1 : 0 }] };
+    }
+    if (statement.startsWith("SELECT cf.fare_id,") && statement.endsWith(comparisonSource + " ORDER BY cf.fare_id")) {
+      assert.deepStrictEqual(parameters, [agencyId]);
+      return { rowCount: 1, rows: [{ ...pendingFare, status }] };
+    }
+    if (/^SELECT [\w, ]+ FROM fares WHERE agency_id = \$1 ORDER BY fare_id$/i.test(statement)) {
+      assert.deepStrictEqual(parameters, [agencyId]);
+      return { rowCount: 1, rows: [{ ...publishedFare }] };
+    }
+    assert.fail(`Unexpected query during fare review: ${statement}`);
+  });
+  const connect = t.mock.method(pool, "connect", async () => {
+    assert.fail("Unexpected database client during fare review");
+  });
+  return { agencyId, uploadedAt, publishedFare, pendingFare, query, connect, statusWrites };
+}
+
+test("reviewing a pending fare displays the new price without changing the published fare read", async (t) => {
+  const { agencyId, uploadedAt, publishedFare, pendingFare, query, connect, statusWrites } = mockFareReviewDatabase(t);
+  const beforeReview = await listPublishedFares(agencyId);
+  const response = await request(app).get("/api/admin/fare-changes");
+  const afterReview = await listPublishedFares(agencyId);
+
+  assert.strictEqual(response.status, 200);
+  assert.deepStrictEqual(response.body, {
+    agencyId, uploadedAt, count: 1, changes: [{ ...pendingFare, agency_id: agencyId, status: "waiting" }],
+  });
+  assert.deepStrictEqual(beforeReview, [publishedFare]);
+  assert.deepStrictEqual(afterReview, [publishedFare]);
+  assert.strictEqual(query.mock.callCount(), 4);
+  assert.strictEqual(connect.mock.callCount(), 0);
+  assert.deepStrictEqual(statusWrites, []);
+});
+
+test("approving and undoing a pending fare leave the published price unchanged", async (t) => {
+  const { agencyId, publishedFare, pendingFare, statusWrites } = mockFareReviewDatabase(t);
+  const fareId = pendingFare.fare_id;
+  const statusUrl = `/api/admin/fare-changes/${fareId}/status`;
+  assert.deepStrictEqual(await listPublishedFares(agencyId), [publishedFare]);
+
+  const approved = await request(app).patch(statusUrl).send({ status: "approved" }).expect(200);
+  assert.deepStrictEqual(approved.body, { fare_id: fareId, agency_id: agencyId, status: "approved", allApproved: true });
+  const approvedReview = await request(app).get("/api/admin/fare-changes").expect(200);
+  assert.deepStrictEqual(approvedReview.body.changes, [{ ...pendingFare, agency_id: agencyId, status: "approved" }]);
+  assert.deepStrictEqual(await listPublishedFares(agencyId), [publishedFare]);
+
+  const undone = await request(app).patch(statusUrl).send({ status: "waiting" }).expect(200);
+  assert.deepStrictEqual(undone.body, { fare_id: fareId, agency_id: agencyId, status: "waiting", allApproved: false });
+  const undoneReview = await request(app).get("/api/admin/fare-changes").expect(200);
+  assert.deepStrictEqual(undoneReview.body.changes, [{ ...pendingFare, agency_id: agencyId, status: "waiting" }]);
+  assert.deepStrictEqual(await listPublishedFares(agencyId), [publishedFare]);
+  assert.deepStrictEqual(statusWrites, [[agencyId, fareId, "approved"], [agencyId, fareId, "waiting"]]);
 });
