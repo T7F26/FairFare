@@ -75,7 +75,12 @@ begin
     insert into fares(fare_id, price, currency_type, payment_method, transfers, transfer_duration, agency_id)
     select agency_prefix ||'_'|| fare_id, CAST(price as numeric), currency_type, cast(payment_method as integer), cast(nullif(transfers,'') as integer), cast(nullif(transfer_duration,'') as integer), agency_prefix
     from stage_fares
-    on conflict(fare_id) do nothing;
+    on conflict(fare_id) do update set 
+    price = excluded.price,
+    currency_type=excluded.currency_type,
+    payment_method=excluded.payment_method,
+    transfers=excluded.transfers,
+    transfer_duration=excluded.transfer_duration;
 
     insert into fare_rules(fare_id, route_id, origin_id, destination_id)
     select agency_prefix ||'_'|| fare_id, agency_prefix ||'_'|| nullif(route_id,''), origin_id, destination_id

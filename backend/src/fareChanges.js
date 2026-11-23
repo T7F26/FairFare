@@ -129,5 +129,18 @@ async function setFareChangeStatus(fareId, status) {
     allApproved,
   };
 }
+async function publishFareChanges(){
+  const pending = await getActivePendingImport();
+  if(!pending){
+    const err = new Error("No pending GTFS import found.");
+    err.statusCode = 404;
+    err.code = "NO_PENDING_IMPORT";
+    throw err;
+  }
+  const {agencyId} = pending;
+  const result = await pool.query("SELECT publish_changes($1) AS published_count",[agencyId]);
+  const published_count = result.rows[0].published_count;
+  return { agencyId, published_count };
+}
 
-module.exports = { listFareChanges, setFareChangeStatus };
+module.exports = { listFareChanges, setFareChangeStatus, publishFareChanges };

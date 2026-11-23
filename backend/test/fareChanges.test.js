@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const pool = require("../src/db");
-const { listFareChanges } = require("../src/fareChanges");
+const { listFareChanges, publishFareChanges } = require("../src/fareChanges");
 
 function mockQueries(t, { pending, changes = [], failOn } = {}) {
   const calls = [];
@@ -70,4 +70,24 @@ test("a pending upload with no fare changes returns an empty list", async (t) =>
 test("database errors are passed on to the caller", async (t) => {
   mockQueries(t, { pending: { agency_id: "miway", uploaded_at: null }, failOn: "compare_fares" });
   await assert.rejects(listFareChanges(), /Fixture database unavailable/);
+});
+
+test("publishFareChanges tracks the exact number of changes being published", async(t) =>
+{
+  const agencyId = "ttc";
+  const query = t.mock.method(pool,"query", async(sql) =>{
+    const normalized = sql.trim().replace(/\s+/g, " ");
+    if(normalized==="SELECT agency_id, uploaded_at FROM pending_import WHERE id = 1")
+    {
+      return {rowCount: 1, rows: [{agency_id: agencyId}]};
+    }
+    if(normalized==="SELECT publish_changes($1) AS published_count") {
+      return{rowCount: 1, rows: [{published_count: 5}]};
+    }
+    assert.fail(`Unexpected SQL query: ${normalized}`);
+  });
+  const result = await publishFareChanges();
+
+  assert.equal(result.published_count,5);
+  assert.equal(query.mock.callCount(),2);
 });
