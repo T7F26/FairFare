@@ -1,0 +1,1 @@
+Design documents for FairFare Release 1.0: architecture diagram, low-fidelity prototype trees, paper prototype flow, one prototype screen per user story, and the Entity-Relationship Diagram. These are also in Appendix A of our TAC report.
