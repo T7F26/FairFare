@@ -1,7 +1,9 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const request = require("supertest");
 const pool = require("../src/db");
+const app = require("../src/index");
 const { publishFareChanges } = require("../src/fareChanges");
 
 // Unit tests for Publish Approved Changes (#35).
@@ -71,6 +73,24 @@ test("a database error while publishing is passed on", async (t) => {
   await assert.rejects(publishFareChanges(), /Fixture database unavailable/);
 });
 
-// To add once #33 (endpoint + zero-approved check) and #32 (Publish button) are merged:
-test.todo("publishing with no approved changes returns an error instead of publishing");
-test.todo("POST publish endpoint returns the number of changes published");
+test("a 'No approved changes' error from the database is passed on", async (t) => {
+  t.mock.method(pool, "query", async (sql) => {
+    const normalized = sql.trim().replace(/\s+/g, " ");
+    if (normalized.includes("FROM pending_import")) {
+      return { rowCount: 1, rows: [{ agency_id: "miway", uploaded_at: null }] };
+    }
+    if (normalized.includes("publish_changes($1)")) {
+      throw new Error("No approved changes to publish");
+    }
+    assert.fail(`Unexpected SQL: ${normalized}`);
+  });
+  await assert.rejects(publishFareChanges(), /No approved changes to publish/);
+});
+
+test("POST /api/admin/fare-changes/publish with no pending upload returns 404 NO_PENDING_IMPORT", async (t) => {
+  const { calls } = mockPublish(t);
+  const response = await request(app).post("/api/admin/fare-changes/publish");
+  assert.equal(response.status, 404);
+  assert.equal(response.body.code, "NO_PENDING_IMPORT");
+  assert.ok(!calls.some((c) => c.sql.includes("publish_changes")));
+});
