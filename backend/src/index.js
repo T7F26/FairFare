@@ -200,6 +200,31 @@ app.patch("/api/admin/fare-changes/:fareId/status", async (req, res) => {
   }
 });
 
+app.post("/api/admin/fare-changes/publish", async(req, res) =>{
+  try{
+    const result = await fareChanges.publishFareChanges();
+    return res.status(200).json(result);
+  }catch (error){
+    if(error.message && error.message.includes("No approved changes")){
+      return res.status(400).json({
+        code: "NO_APPROVED_CHANGES",
+        message: "Cannot publish. There are no approved changes."
+      });
+    }
+    if(error.statusCode){
+      return res.status(error.statusCode).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
+    console.error("Publishing fare changes failed:", error);
+    return res.status(500).json({
+      code: "FARE_PUBLISH_FAILED",
+      message: "Could not publish fare changes.",
+    });
+  }
+});
+
 // Start the server only when this file is run directly (not in tests)
 if (require.main === module) {
   const port = process.env.PORT || 4000;
