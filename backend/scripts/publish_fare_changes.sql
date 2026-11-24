@@ -4,8 +4,11 @@ declare
     published_count INTEGER;
 begin
     select count(*)::int as total into published_count from compare_fares(f_agency_id) cf join fare_change_statuses fcs on fcs.agency_id=f_agency_id and fcs.fare_id = cf.fare_id where fcs.status = 'approved';
+    if published_count = 0 then 
+        raise exception 'No approved changes to publish' using errcode = 'P0001'; 
+    end if;
     delete from fares f using fare_change_statuses fcs where fcs.agency_id=f_agency_id and fcs.fare_id = f.fare_id and fcs.status = 'approved' and not exists(select 1 from stage_fares sf where f_agency_id ||'_'|| sf.fare_id=f.fare_id);
-    delete from stage_fare_rules sfr where sfr.fare_id not in(select sf.fare_id from stage_fares sf join fare_change_statuses fcs on fcs.fare_id= f_agency_id ||'_'|| sf.fare_id where fcs.agency_id=f_agency_id and fcs.status = 'approved');
+    delete from stage_fare_rules sfr where not exists(select sf.fare_id from stage_fares sf join fare_change_statuses fcs on fcs.fare_id= f_agency_id ||'_'|| sf.fare_id where fcs.agency_id=f_agency_id and fcs.status = 'approved' and sf.fare_id = sfr.fare_id);
     delete from stage_fares sf where not exists (select 1 from fare_change_statuses fcs where fcs.agency_id = f_agency_id and fcs.fare_id = f_agency_id || '_' || sf.fare_id and fcs.status = 'approved');
     perform process_gtfs_records(f_agency_id);
     delete from pending_import where id = 1;

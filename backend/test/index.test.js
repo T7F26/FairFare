@@ -7,6 +7,7 @@ const gtfsImport = require("../src/gtfsImport");
 const pool = require("../src/db");
 const app = require("../src/index");
 const { listPublishedFares } = require("../src/publishedFares");
+const fareChanges = require("../src/fareChanges");
 
 // The route checks the agencies table first, so fake that query
 function mockAgencyLookup(t) {
@@ -177,4 +178,26 @@ test("approving and undoing a pending fare leave the published price unchanged",
   assert.deepStrictEqual(undoneReview.body.changes, [{ ...pendingFare, agency_id: agencyId, status: "waiting" }]);
   assert.deepStrictEqual(await listPublishedFares(agencyId), [publishedFare]);
   assert.deepStrictEqual(statusWrites, [[agencyId, fareId, "approved"], [agencyId, fareId, "waiting"]]);
+});
+test("POST /api/admin/fare-changes/publish - no approved changes", async(t) => {
+  t.mock.method(fareChanges, "publishFareChanges", async () => {
+    throw new Error("No approved changes to publish");
+  });
+
+  const response = await request(app).post("/api/admin/fare-changes/publish");
+
+  assert.strictEqual(response.status, 400);
+  assert.strictEqual(response.body.code, "NO_APPROVED_CHANGES");
+});
+
+test("POST /api/admin/fare-changes/publish - successfully publishes changes", async (t) =>{
+  t.mock.method(fareChanges, "publishFareChanges", async()=>({
+    agencyId: "ttc",
+    published_count: 5
+  }));
+
+  const response = await request(app).post("/api/admin/fare-changes/publish");
+
+  assert.strictEqual(response.status, 200);
+  assert.deepStrictEqual(response.body,{agencyId: "ttc", published_count: 5});
 });
