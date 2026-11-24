@@ -1,8 +1,8 @@
-
- // Review Updates screen
- // Story A5 - See Changed Fares, task #22: table of changed fares for admins
- // Story A6 - Approve Fare Change, task #27: Approve and Undo buttons
- // Task #29: Confirmation message when a fare is approved
+// Review Updates screen
+// Story A5 - See Changed Fares, task #22: table of changed fares for admins
+// Story A6 - Approve Fare Change, task #27: Approve and Undo buttons
+// Task #29: Confirmation message when a fare is approved
+// Story A7 - Publish Approved Changes, task #32: Publish button and result message area
 
 import { useEffect, useState } from 'react'
 import './ReviewUpdates.css'
@@ -40,6 +40,8 @@ export default function ReviewUpdates() {
   const [saveError, setSaveError] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [savingIds, setSavingIds] = useState({})
+  const [publishMessage, setPublishMessage] = useState('')
+  const [publishError, setPublishError] = useState('')
 
   useEffect(() => {
     async function loadChanges() {
@@ -114,6 +116,19 @@ export default function ReviewUpdates() {
         [fareId]: false,
       }))
     }
+  }
+
+  // Task #32: Publish button handler (API connection handled in task #34)
+  function handlePublish() {
+    setPublishMessage('')
+    setPublishError('')
+
+    if (approvedCount === 0) {
+      setPublishError('Approve at least one change first')
+      return
+    }
+
+    setPublishMessage(`${approvedCount} changes published`)
   }
 
   const approvedCount = changes.filter(
@@ -242,6 +257,33 @@ export default function ReviewUpdates() {
             Riders keep seeing the old fares until the changes
             are published.
           </p>
+
+          {/* Task #32: Publish button and result message area */}
+          <div className="publish-section">
+            <button
+              type="button"
+              className="publish-button"
+              onClick={handlePublish}
+            >
+              Publish approved changes
+            </button>
+
+            {publishMessage && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="message success"
+              >
+                {publishMessage}
+              </p>
+            )}
+
+            {publishError && (
+              <p role="alert" className="message error">
+                ✖ {publishError}
+              </p>
+            )}
+          </div>
         </>
       )}
     </div>
