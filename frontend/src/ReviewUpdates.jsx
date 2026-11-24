@@ -1,8 +1,8 @@
-
- // Review Updates screen
- // Story A5 - See Changed Fares, task #22: table of changed fares for admins
- // Story A6 - Approve Fare Change, task #27: Approve and Undo buttons
- // Task #29: Confirmation message when a fare is approved
+// Review Updates screen
+// Story A5 - See Changed Fares, task #22: table of changed fares for admins
+// Story A6 - Approve Fare Change, task #27: Approve and Undo buttons
+// Task #29: Confirmation message when a fare is approved
+// Story A8 - Publish Approved Changes, task #32: Publish button
 
 import { useEffect, useState } from 'react'
 import './ReviewUpdates.css'
@@ -115,6 +115,9 @@ export default function ReviewUpdates() {
       }))
     }
   }
+
+  // Task #32: Publish button handler (API connection handled in task #34)
+  function handlePublish() {}
 
   const approvedCount = changes.filter(
     (change) => statuses[change.fare_id] === 'approved'
@@ -242,6 +245,17 @@ export default function ReviewUpdates() {
             Riders keep seeing the old fares until the changes
             are published.
           </p>
+
+          {/* Task #32: Publish button */}
+          <div className="publish-section">
+            <button
+              type="button"
+              className="publish-button"
+              onClick={handlePublish}
+            >
+              Publish approved changes
+            </button>
+          </div>
         </>
       )}
     </div>
