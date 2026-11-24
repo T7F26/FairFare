@@ -1,10 +1,11 @@
+// Review Updates screen
+// Story A5 - See Changed Fares, task #22: table of changed fares for admins
+// Story A6 - Approve Fare Change, task #27: Approve and Undo buttons
+// Task #29: Confirmation message when a fare is approved
+// Story A8 - Publish Approved Changes, task #32: Publish button
 
- // Review Updates screen
- // Story A5 - See Changed Fares, task #22: table of changed fares for admins
- // Story A6 - Approve Fare Change, task #27: Approve and Undo buttons
- // Task #29: Confirmation message when a fare is approved
-
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import PublishFeedback from './PublishFeedback.jsx'
 import './ReviewUpdates.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
@@ -40,42 +41,50 @@ export default function ReviewUpdates() {
   const [saveError, setSaveError] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [savingIds, setSavingIds] = useState({})
+  const [publishing, setPublishing] = useState(false)
+  const [publishFeedback, setPublishFeedback] = useState(null)
+  const publishInFlight = useRef(false)
+  const latestLoad = useRef(0)
 
-  useEffect(() => {
-    async function loadChanges() {
-      try {
-        const response = await fetch(CHANGES_URL)
+  const loadChanges = useCallback(() => {
+    const loadVersion = ++latestLoad.current
 
-        if (!response.ok) {
-          throw new Error('Request failed')
-        }
+    return fetch(CHANGES_URL)
+      .then((response) => {
+        if (!response.ok) throw new Error('Request failed')
+        return response.json()
+      })
+      .then((data) => {
+        // An older load must not restore fares after the publish refresh.
+        if (loadVersion !== latestLoad.current) return
 
-        const data = await response.json()
         const list = Array.isArray(data) ? data : data.changes || []
+        const nextStatuses = Object.fromEntries(
+          list.map((change) => [change.fare_id, change.status || 'waiting'])
+        )
 
         setChanges(list)
-        setStatuses(
-          Object.fromEntries(
-            list.map((change) => [
-              change.fare_id,
-              change.status || 'waiting',
-            ])
-          )
-        )
-      } catch {
-        setError('Could not load fare changes. Try again.')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadChanges()
+        setStatuses(nextStatuses)
+        setError('')
+      })
+      .catch(() => {
+        if (loadVersion === latestLoad.current) {
+          setError('Could not load fare changes. Try again.')
+        }
+      })
+      .finally(() => {
+        if (loadVersion === latestLoad.current) setLoading(false)
+      })
   }, [])
+
+  useEffect(() => {
+    loadChanges()
+  }, [loadChanges])
 
   // Approve or undo a fare.
   // Display confirmation only when the backend saves successfully.
   async function changeStatus(fareId, newStatus) {
-    if (savingIds[fareId]) return
+    if (savingIds[fareId] || publishInFlight.current) return
 
     const oldStatus = statuses[fareId]
 
@@ -119,6 +128,42 @@ export default function ReviewUpdates() {
   const approvedCount = changes.filter(
     (change) => statuses[change.fare_id] === 'approved'
   ).length
+  const savingStatus = Object.values(savingIds).some(Boolean)
+
+  async function handlePublish() {
+    if (publishInFlight.current || savingStatus) return
+
+    setConfirmation('')
+    if (approvedCount === 0) {
+      setPublishFeedback({ outcome: 'no-approved' })
+      return
+    }
+
+    publishInFlight.current = true
+    setPublishing(true)
+    setPublishFeedback(null)
+
+    try {
+      const response = await fetch(`${CHANGES_URL}/publish`, { method: 'POST' })
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        setPublishFeedback({
+          outcome: data?.code === 'NO_APPROVED_CHANGES' ? 'no-approved' : 'failed',
+        })
+        return
+      }
+
+      setPublishFeedback({ outcome: 'published', count: data?.published_count })
+      // The list may have changed even if the response lacks a valid count.
+      await loadChanges()
+    } catch {
+      setPublishFeedback({ outcome: 'failed' })
+    } finally {
+      publishInFlight.current = false
+      setPublishing(false)
+    }
+  }
 
   return (
     <div className="review-updates">
@@ -201,7 +246,7 @@ export default function ReviewUpdates() {
                       {approved ? (
                         <button
                           type="button"
-                          disabled={saving}
+                          disabled={saving || publishing}
                           onClick={() =>
                             changeStatus(
                               change.fare_id,
@@ -214,7 +259,7 @@ export default function ReviewUpdates() {
                       ) : (
                         <button
                           type="button"
-                          disabled={saving}
+                          disabled={saving || publishing}
                           onClick={() =>
                             changeStatus(
                               change.fare_id,
@@ -242,8 +287,21 @@ export default function ReviewUpdates() {
             Riders keep seeing the old fares until the changes
             are published.
           </p>
+
+          {/* Task #32: Publish button */}
+          <div className="publish-section">
+            <button
+              type="button"
+              className="publish-button"
+              disabled={publishing || savingStatus}
+              onClick={handlePublish}
+            >
+              {publishing ? 'Publishing…' : 'Publish approved changes'}
+            </button>
+          </div>
         </>
       )}
+      {publishFeedback && <PublishFeedback {...publishFeedback} />}
     </div>
   )
 }
