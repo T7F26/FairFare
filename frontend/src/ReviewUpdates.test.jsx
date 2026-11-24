@@ -1,10 +1,40 @@
-import { render, screen, within } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import ReviewUpdates from './ReviewUpdates.jsx'
 
 const fetchMock = vi.fn()
+const adultFare = {
+  fare_id: 'miway_adult/presto',
+  agency_id: 'miway',
+  old_price: '3.10',
+  new_price: '3.50',
+  status: 'waiting',
+}
+const youthFare = {
+  fare_id: 'miway_youth',
+  agency_id: 'miway',
+  old_price: '2.25',
+  new_price: '2.50',
+  status: 'waiting',
+}
+
+function fareChangesResponse(changes) {
+  return Response.json({
+    agencyId: 'miway',
+    uploadedAt: '2026-11-20T18:00:00.000Z',
+    count: changes.length,
+    changes,
+  })
+}
+
+async function renderFareChanges(changes) {
+  fetchMock.mockResolvedValueOnce(fareChangesResponse(changes))
+  render(<ReviewUpdates />)
+  await screen.findByRole('table')
+}
 
 beforeEach(() => {
   fetchMock.mockReset()
@@ -81,32 +111,6 @@ describe('Review Updates before approval', () => {
 })
 
 describe('Approve Fare Change (Issue #30)', () => {
-  const adultFare = {
-    fare_id: 'miway_adult/presto',
-    agency_id: 'miway',
-    old_price: '3.10',
-    new_price: '3.50',
-    status: 'waiting',
-  }
-  const youthFare = {
-    fare_id: 'miway_youth',
-    agency_id: 'miway',
-    old_price: '2.25',
-    new_price: '2.50',
-    status: 'waiting',
-  }
-
-  async function renderFareChanges(changes) {
-    fetchMock.mockResolvedValueOnce(Response.json({
-      agencyId: 'miway',
-      uploadedAt: '2026-11-20T18:00:00.000Z',
-      count: changes.length,
-      changes,
-    }))
-    render(<ReviewUpdates />)
-    await screen.findByRole('table')
-  }
-
   function fareRow(fareId) {
     return within(screen.getByRole('cell', { name: fareId, exact: true }).closest('tr'))
   }
@@ -190,6 +194,7 @@ describe('Approve Fare Change (Issue #30)', () => {
     await user.click(row.getByRole('button', { name: 'Approve' }))
 
     expect(row.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Publish approved changes' })).toBeDisabled()
     expect(row.getByRole('cell', { name: 'Approved' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     await expectStatusRequest(adultFare.fare_id, 'approved')
@@ -199,10 +204,172 @@ describe('Approve Fare Change (Issue #30)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not save the change. Try again.')
     expect(row.getByRole('cell', { name: 'Waiting for review' })).toBeInTheDocument()
     expect(row.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Publish approved changes' })).toBeEnabled()
     expect(screen.getByText('0 of 1 changes approved')).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
+})
 
-  // Issue #32 owns the Publish button. Exercise its gating once the control exists.
-  it.todo('enables Publish only after all changes are approved and disables it again on Undo')
+describe('Publish approved changes (Issue #34)', () => {
+  const approvedAdultFare = { ...adultFare, status: 'approved' }
+  const approvedYouthFare = { ...youthFare, status: 'approved' }
+  const publishButtonName = 'Publish approved changes'
+  const noApprovedWarning = 'Approve at least one change first'
+  const publishError = 'Could not publish fare changes. Try again.'
+
+  it.each([
+    [[approvedAdultFare], 1, '1 change published'],
+    [[approvedAdultFare, approvedYouthFare], 2, '2 changes published'],
+    // A mixed list can be published, and only the server confirms the final count.
+    [[approvedAdultFare, youthFare], 7, '7 changes published'],
+  ])('posts approved changes and shows the server count %#', async (changes, count, message) => {
+    const user = userEvent.setup()
+    await renderFareChanges(changes)
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ agencyId: 'miway', published_count: count }))
+      .mockResolvedValueOnce(fareChangesResponse([]))
+
+    await user.click(screen.getByRole('button', { name: publishButtonName }))
+
+    expect(await screen.findByText('No fare changes in this import.')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(message)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const [initial, publish, refresh] = fetchMock.mock.calls.map((call) => new Request(...call))
+    expect(new URL(publish.url).pathname).toBe('/api/admin/fare-changes/publish')
+    expect(publish.method).toBe('POST')
+    expect(publish.body).toBeNull()
+    expect(refresh.method).toBe('GET')
+    expect(refresh.url).toBe(initial.url)
+  })
+
+  it('warns when no fares are approved without making a publish request', async () => {
+    const user = userEvent.setup()
+    await renderFareChanges([adultFare, youthFare])
+
+    await user.click(screen.getByRole('button', { name: publishButtonName }))
+
+    expect(screen.getByRole('alert').textContent).toBe(noApprovedWarning)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['the server finds no approved fares', () => Response.json({ code: 'NO_APPROVED_CHANGES' }, { status: 400 }), noApprovedWarning],
+    ['an HTTP error occurs', () => Response.json({ code: 'FARE_PUBLISH_FAILED' }, { status: 500 }), publishError],
+    ['the network request fails', () => Promise.reject(new TypeError('Network unavailable')), publishError],
+  ])('shows an alert when %s', async (_case, respond, message) => {
+    const user = userEvent.setup()
+    await renderFareChanges([approvedAdultFare])
+    fetchMock.mockImplementationOnce(respond)
+
+    await user.click(screen.getByRole('button', { name: publishButtonName }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: publishButtonName })).toBeEnabled()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['missing count', () => Response.json({ agencyId: 'miway' })],
+    ['invalid count', () => Response.json({ published_count: '7' })],
+    ['malformed JSON', () => new Response('{')],
+  ])('does not report success for a response with %s', async (_case, respond) => {
+    const user = userEvent.setup()
+    await renderFareChanges([approvedAdultFare])
+    fetchMock
+      .mockImplementationOnce(respond)
+      .mockResolvedValueOnce(fareChangesResponse([]))
+
+    await user.click(screen.getByRole('button', { name: publishButtonName }))
+
+    expect(await screen.findByText('No fare changes in this import.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not confirm how many changes were published.')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('prevents repeat clicks and status changes while publishing and refreshing', async () => {
+    const user = userEvent.setup()
+    await renderFareChanges([approvedAdultFare, youthFare])
+    const publish = Promise.withResolvers()
+    const refresh = Promise.withResolvers()
+    fetchMock.mockReturnValueOnce(publish.promise).mockReturnValueOnce(refresh.promise)
+
+    await user.dblClick(screen.getByRole('button', { name: publishButtonName }))
+
+    const publishingButton = screen.getByRole('button', { name: 'Publishing…' })
+    expect(publishingButton).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    publish.resolve(Response.json({ published_count: 1 }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(publishingButton).toBeDisabled()
+    await user.click(publishingButton)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    refresh.resolve(fareChangesResponse([youthFare]))
+    expect(await screen.findByRole('button', { name: publishButtonName })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it('clears a previous success immediately when starting a new publish that fails', async () => {
+    const user = userEvent.setup()
+    await renderFareChanges([approvedAdultFare])
+    const nextPublish = Promise.withResolvers()
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ published_count: 1 }))
+      .mockResolvedValueOnce(fareChangesResponse([approvedYouthFare]))
+      .mockReturnValueOnce(nextPublish.promise)
+
+    await user.click(screen.getByRole('button', { name: publishButtonName }))
+    expect(await screen.findByRole('cell', { name: youthFare.fare_id })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 change published')
+
+    await user.click(screen.getByRole('button', { name: publishButtonName }))
+    expect(screen.getByRole('button', { name: 'Publishing…' })).toBeDisabled()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    nextPublish.resolve(new Response(null, { status: 500 }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(publishError)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('preserves confirmed success when the subsequent refresh fails', async () => {
+    const user = userEvent.setup()
+    await renderFareChanges([approvedAdultFare])
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ published_count: 1 }))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+
+    await user.click(screen.getByRole('button', { name: publishButtonName }))
+
+    expect(await screen.findByText(/Could not load fare changes/)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 change published')
+  })
+
+  it('ignores an older initial load that finishes after the publish refresh', async () => {
+    const user = userEvent.setup()
+    const earlierLoad = Promise.withResolvers()
+    fetchMock
+      .mockReturnValueOnce(earlierLoad.promise)
+      .mockResolvedValueOnce(fareChangesResponse([approvedAdultFare]))
+      .mockResolvedValueOnce(Response.json({ published_count: 1 }))
+      .mockResolvedValueOnce(fareChangesResponse([]))
+
+    render(<StrictMode><ReviewUpdates /></StrictMode>)
+    await user.click(await screen.findByRole('button', { name: publishButtonName }))
+    expect(await screen.findByText('No fare changes in this import.')).toBeInTheDocument()
+
+    await act(async () => {
+      earlierLoad.resolve(fareChangesResponse([approvedAdultFare]))
+    })
+
+    expect(screen.getByText('No fare changes in this import.')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 change published')
+  })
 })
