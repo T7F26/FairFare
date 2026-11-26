@@ -12,61 +12,6 @@ const AGENCIES = [
   { id: 'durham_region_transit', label: 'Durham Region Transit' },
 ]
 
-const INITIAL_CATEGORIES = [
-  {
-    category_id: 1,
-    category_name: 'Adult',
-    proof_required: 'None required',
-    discounts: {
-      ttc: null,
-      gotransit: null,
-      miway: null,
-      brampton_transit: null,
-      yrt: null,
-      durham_region_transit: null,
-    },
-  },
-  {
-    category_id: 2,
-    category_name: 'Youth',
-    proof_required: 'Valid ID / Youth card or proof of age',
-    discounts: {
-      ttc: null,
-      gotransit: null,
-      miway: null,
-      brampton_transit: null,
-      yrt: null,
-      durham_region_transit: null,
-    },
-  },
-  {
-    category_id: 3,
-    category_name: 'Senior',
-    proof_required: 'Government ID / Senior fare card',
-    discounts: {
-      ttc: null,
-      gotransit: null,
-      miway: null,
-      brampton_transit: null,
-      yrt: null,
-      durham_region_transit: null,
-    },
-  },
-  {
-    category_id: 4,
-    category_name: 'Post-Secondary Student',
-    proof_required: 'Valid student ID / enrollment proof',
-    discounts: {
-      ttc: null,
-      gotransit: null,
-      miway: null,
-      brampton_transit: null,
-      yrt: null,
-      durham_region_transit: null,
-    },
-  },
-]
-
 function formatDiscount(value) {
   if (value === null || value === undefined || value === '') {
     return '-'
@@ -78,13 +23,12 @@ function formatDiscount(value) {
 }
 
 export default function RiderCategories() {
-  const [categories, setCategories] = useState(INITIAL_CATEGORIES)
-  const [loading, setLoading] = useState(false)
+  const [categories, setCategories] = useState([])
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let isCurrent = true
-    setLoading(true)
 
     fetch(`${API_URL}/api/rider-categories`)
       .then((res) => {
@@ -96,14 +40,13 @@ export default function RiderCategories() {
       .then((data) => {
         if (!isCurrent) return
         const rows = Array.isArray(data) ? data : data.categories
-        if (Array.isArray(rows) && rows.length > 0) {
-          setCategories(rows)
-        }
+        setCategories(Array.isArray(rows) ? rows : [])
         setError('')
       })
       .catch(() => {
         if (!isCurrent) return
-        setError('')
+        setCategories([])
+        setError('Could not load rider categories. Try again.')
       })
       .finally(() => {
         if (isCurrent) {
@@ -131,11 +74,11 @@ export default function RiderCategories() {
         </p>
       )}
 
-      {!loading && categories.length === 0 && (
+      {!loading && !error && categories.length === 0 && (
         <p className="message">No rider categories found.</p>
       )}
 
-      {!loading && categories.length > 0 && (
+      {!loading && !error && categories.length > 0 && (
         <div className="table-wrap">
           <table>
             <thead>
