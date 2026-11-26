@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ImportData from './ImportData.jsx'
 import ReviewUpdates from './ReviewUpdates.jsx'
+import RiderCategories from './RiderCategories.jsx'
 
 function App() {
   const [screen, setScreen] = useState('import')
@@ -14,9 +15,18 @@ function App() {
         <button type="button" onClick={() => setScreen('review')} disabled={screen === 'review'}>
           Review Updates
         </button>
+        <button
+          type="button"
+          onClick={() => setScreen('categories')}
+          disabled={screen === 'categories'}
+        >
+          Rider Categories
+        </button>
       </nav>
 
-      {screen === 'import' ? <ImportData /> : <ReviewUpdates />}
+      {screen === 'import' && <ImportData />}
+      {screen === 'review' && <ReviewUpdates />}
+      {screen === 'categories' && <RiderCategories />}
     </>
   )
 }
