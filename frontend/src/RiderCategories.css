@@ -1,0 +1,64 @@
+.rider-categories {
+    max-width: 960px;
+    margin: 40px auto;
+    padding: 24px;
+    border: 2px solid #333;
+    border-radius: 8px;
+    text-align: left;
+  }
+  
+  .rider-categories h2 {
+    margin-top: 0;
+  }
+  
+  .rider-categories .subtitle {
+    margin-bottom: 16px;
+  }
+  
+  .rider-categories .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+  
+  .rider-categories table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .rider-categories th,
+  .rider-categories td {
+    padding: 8px 10px;
+    border: 1px solid #555;
+  }
+  
+  .rider-categories th {
+    font-weight: bold;
+  }
+  
+  .rider-categories .category-col {
+    font-weight: bold;
+    white-space: nowrap;
+  }
+  
+  .rider-categories .no-discount {
+    text-align: center;
+  }
+  
+  .rider-categories .proof-col {
+    min-width: 180px;
+  }
+  
+  .rider-categories .note {
+    margin-top: 12px;
+    font-size: 14px;
+  }
+  
+  .rider-categories .message {
+    padding: 12px;
+    border: 2px solid #333;
+    border-radius: 6px;
+  }
+  
+  .rider-categories .error {
+    border-style: dashed;
+  }
