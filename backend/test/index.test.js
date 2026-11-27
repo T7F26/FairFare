@@ -249,3 +249,171 @@ test("GET /api/rider-categories - returns 500 when loading rider categories fail
     message: "Could not load rider categories.",
   });
 });
+
+const discountUpdatePath = "/api/admin/rider-categories/17/discounts/ttc";
+const selectedDiscount = {
+  discount_id: 81,
+  discount_percentage: "31.82",
+  category_name: "Senior",
+};
+
+function mockDiscountDatabase(t, {
+  matches = [selectedDiscount],
+  storedValue,
+  failAt,
+  auditAvailable = true,
+} = {}) {
+  const calls = [];
+  const client = {
+    async query(sql, parameters = []) {
+      const statement = sql.trim().replace(/\s+/g, " ");
+
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(statement)) {
+        calls.push([statement]);
+        return { rowCount: 0, rows: [] };
+      }
+      if (statement.startsWith("SELECT ")) {
+        assert.match(statement, /FROM agency_discounts ad JOIN rider_categories rc\b/);
+        assert.match(statement, /WHERE ad\.category_id = \$1 AND ad\.agency_id = \$2 .*LIMIT 2 FOR UPDATE OF ad$/);
+        calls.push(["SELECT", parameters]);
+        return { rowCount: matches.length, rows: matches };
+      }
+      if (statement.startsWith("UPDATE ")) {
+        assert.strictEqual(statement,
+          "UPDATE agency_discounts SET discount_percentage = $3 " +
+          "WHERE category_id = $1 AND agency_id = $2 AND discount_id = $4 RETURNING discount_percentage");
+        calls.push(["UPDATE", parameters]);
+        if (failAt === "UPDATE") throw new Error("private update failure");
+        return { rowCount: 1, rows: [{ discount_percentage: storedValue ?? String(parameters[2]) }] };
+      }
+      assert.fail(`Unexpected discount query: ${statement}`);
+    },
+    release() { calls.push(["RELEASE"]); },
+  };
+
+  const connect = t.mock.method(pool, "connect", async () => client);
+  const poolQuery = t.mock.method(pool, "query", async () => {
+    assert.fail("Discount changes must use the transaction client");
+  });
+  if (auditAvailable) {
+    app.locals.recordDiscountChange = async (auditClient, change) => {
+      assert.strictEqual(auditClient, client);
+      calls.push(["AUDIT", change]);
+      if (failAt === "AUDIT") throw new Error("private audit failure");
+    };
+    t.after(() => delete app.locals.recordDiscountChange);
+  }
+  return { calls, connect, poolQuery };
+}
+
+for (const [percentage, storedValue, expected] of [
+  [35, "35.00", 35],
+  [0, "0.00", 0],
+  [100, "100.00", 100],
+  [35.125, "35.13", 35.13],
+]) {
+  test(`PATCH rider discount - saves ${percentage}% and returns the stored value`, async (t) => {
+    const { calls, connect } = mockDiscountDatabase(t, { storedValue });
+
+    const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: percentage });
+
+    const discount = {
+      category_id: 17,
+      category_name: "Senior",
+      agency_id: "ttc",
+      discount_percentage: expected,
+    };
+    assert.strictEqual(response.status, 200);
+    assert.deepStrictEqual(response.body, { ...discount, message: "Senior updated" });
+    assert.strictEqual(connect.mock.callCount(), 1);
+    assert.deepStrictEqual(calls, [
+      ["BEGIN"],
+      ["SELECT", [17, "ttc"]],
+      ["UPDATE", [17, "ttc", percentage, selectedDiscount.discount_id]],
+      ["AUDIT", { ...discount, previous_discount_percentage: 31.82 }],
+      ["COMMIT"],
+      ["RELEASE"],
+    ]);
+  });
+}
+
+test("PATCH rider discount - rejects invalid percentages and identifiers before any queries or audit", async (t) => {
+  const { calls, connect, poolQuery } = mockDiscountDatabase(t);
+  const cases = [
+    [discountUpdatePath, { discount_percentage: -0.01 }, "NEGATIVE_FARE"],
+    [discountUpdatePath, { discount_percentage: 100.01 }, "INVALID_FARE"],
+    [discountUpdatePath, { discount_percentage: "35" }, "INVALID_FARE"],
+    [discountUpdatePath, { discount_percentage: null }, "INVALID_FARE"],
+    [discountUpdatePath, {}, "INVALID_FARE"],
+    ["/api/admin/rider-categories/1.5/discounts/ttc", { discount_percentage: 35 }, "INVALID_CATEGORY_ID"],
+    ["/api/admin/rider-categories/2147483648/discounts/ttc", { discount_percentage: 35 }, "INVALID_CATEGORY_ID"],
+    ["/api/admin/rider-categories/17/discounts/not%20valid", { discount_percentage: 35 }, "INVALID_AGENCY_ID"],
+  ];
+
+  for (const [path, body, code] of cases) {
+    const response = await request(app).patch(path).send(body);
+    assert.strictEqual(response.status, 400, code);
+    assert.strictEqual(response.body.code, code);
+    if (code === "NEGATIVE_FARE") assert.strictEqual(response.body.message, "Fare can't be negative");
+  }
+
+  assert.strictEqual(connect.mock.callCount(), 0);
+  assert.strictEqual(poolQuery.mock.callCount(), 0);
+  assert.deepStrictEqual(calls, []);
+});
+
+test("PATCH rider discount - rejects missing combinations without inserting or auditing", async (t) => {
+  const { calls } = mockDiscountDatabase(t, { matches: [] });
+  const paths = [
+    ["/api/admin/rider-categories/999/discounts/ttc", [999, "ttc"]],
+    ["/api/admin/rider-categories/17/discounts/unknown_agency", [17, "unknown_agency"]],
+    [discountUpdatePath, [17, "ttc"]],
+  ];
+
+  for (const [path, parameters] of paths) {
+    const response = await request(app).patch(path).send({ discount_percentage: 35 });
+    assert.strictEqual(response.status, 404);
+    assert.strictEqual(response.body.code, "DISCOUNT_NOT_FOUND");
+    assert.deepStrictEqual(calls.splice(0), [["BEGIN"], ["SELECT", parameters], ["ROLLBACK"], ["RELEASE"]]);
+  }
+});
+
+test("PATCH rider discount - rejects duplicate matches without updating or auditing", async (t) => {
+  const { calls } = mockDiscountDatabase(t, {
+    matches: [selectedDiscount, { ...selectedDiscount, discount_id: 82 }],
+  });
+
+  const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 35 });
+
+  assert.strictEqual(response.status, 409);
+  assert.strictEqual(response.body.code, "DISCOUNT_CONFLICT");
+  assert.deepStrictEqual(calls, [["BEGIN"], ["SELECT", [17, "ttc"]], ["ROLLBACK"], ["RELEASE"]]);
+});
+
+test("PATCH rider discount - does not open a database connection until auditing is available", async (t) => {
+  const { calls, connect, poolQuery } = mockDiscountDatabase(t, { auditAvailable: false });
+
+  const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 35 });
+
+  assert.strictEqual(response.status, 503);
+  assert.strictEqual(response.body.code, "DISCOUNT_WRITES_UNAVAILABLE");
+  assert.strictEqual(connect.mock.callCount(), 0);
+  assert.strictEqual(poolQuery.mock.callCount(), 0);
+  assert.deepStrictEqual(calls, []);
+});
+
+for (const failAt of ["UPDATE", "AUDIT"]) {
+  test(`PATCH rider discount - rolls back if ${failAt.toLowerCase()} fails`, async (t) => {
+    const { calls } = mockDiscountDatabase(t, { failAt });
+
+    const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 35 });
+
+    assert.strictEqual(response.status, 500);
+    assert.strictEqual(response.body.code, "DISCOUNT_UPDATE_FAILED");
+    assert.doesNotMatch(response.body.message, /private/);
+    const attempted = failAt === "AUDIT" ? ["AUDIT"] : [];
+    assert.deepStrictEqual(calls.map(([event]) => event), [
+      "BEGIN", "SELECT", "UPDATE", ...attempted, "ROLLBACK", "RELEASE",
+    ]);
+  });
+}

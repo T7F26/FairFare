@@ -3,6 +3,7 @@ import EditDiscountModal from './EditDiscountModal.jsx'
 import './RiderCategories.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+const DISCOUNT_SAVE_ERROR = 'Could not save the discount. Try again.'
 
 const AGENCIES = [
   { id: 'ttc', label: 'TTC' },
@@ -32,6 +33,7 @@ export default function RiderCategories() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeEdit, setActiveEdit] = useState(null)
+  const [confirmation, setConfirmation] = useState('')
 
   useEffect(() => {
     let isCurrent = true
@@ -65,9 +67,10 @@ export default function RiderCategories() {
     }
   }, [])
 
-  function handleOpenEdit(item, rowIndex, agency, displayValue) {
+  function handleOpenEdit(item, agency, displayValue) {
+    setConfirmation('')
     setActiveEdit({
-      rowKey: getRowKey(item, rowIndex),
+      categoryId: item.category_id,
       categoryName: item.category_name || '-',
       agencyId: agency.id,
       agencyLabel: agency.label,
@@ -75,47 +78,52 @@ export default function RiderCategories() {
     })
   }
 
-  function handleSaveDiscount(updatedDiscountValue) {
-    if (!activeEdit) return
+  async function handleSaveDiscount(percentage) {
+    const { categoryId, agencyId } = activeEdit
+    const path = `/api/admin/rider-categories/${encodeURIComponent(categoryId)}/discounts/${encodeURIComponent(agencyId)}`
 
-    const trimmed = String(updatedDiscountValue ?? '').trim()
-    if (trimmed === '') return
+    const response = await fetch(`${API_URL}${path}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ discount_percentage: percentage }),
+    }).catch(() => {
+      throw new Error(DISCOUNT_SAVE_ERROR)
+    })
 
-    const numericDiscount = Number(trimmed)
-    if (
-      Number.isNaN(numericDiscount) ||
-      numericDiscount < 0 ||
-      numericDiscount > 100
-    ) {
-      return
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      const message = typeof data?.message === 'string' ? data.message.trim() : ''
+      throw new Error(message || DISCOUNT_SAVE_ERROR)
     }
 
-    const formattedNewValue = formatDiscount(numericDiscount)
+    const storedPercentage = data?.discount_percentage
+    if (
+      data?.category_id !== categoryId ||
+      data.agency_id !== agencyId ||
+      typeof data.category_name !== 'string' ||
+      !data.category_name.trim() ||
+      !Number.isFinite(storedPercentage) ||
+      storedPercentage < 0 ||
+      storedPercentage > 100
+    ) {
+      throw new Error('Could not confirm the saved discount.')
+    }
 
     setCategories((prev) =>
-      prev.map((row, idx) => {
-        if (getRowKey(row, idx) !== activeEdit.rowKey) return row
-        const existingDiscounts = row.discounts || {}
-        const keyToUpdate = Object.prototype.hasOwnProperty.call(
-          existingDiscounts,
-          activeEdit.agencyLabel
-        )
-          ? activeEdit.agencyLabel
-          : activeEdit.agencyId
-
+      prev.map((row) => {
+        if (row.category_id !== categoryId) return row
         return {
           ...row,
           discounts: {
-            ...existingDiscounts,
-            [keyToUpdate]: numericDiscount,
+            ...row.discounts,
+            [agencyId]: storedPercentage,
           },
         }
       })
     )
 
-    setActiveEdit((prev) =>
-      prev ? { ...prev, currentDiscount: formattedNewValue } : null
-    )
+    setConfirmation(`${data.category_name} updated`)
+    setActiveEdit(null)
   }
 
   return (
@@ -124,6 +132,8 @@ export default function RiderCategories() {
       <p className="subtitle">
         Category discounts by transit agency and required proof for each category.
       </p>
+
+      {confirmation && <p className="message success" role="status">{confirmation}</p>}
 
       {loading && <p>Loading rider categories…</p>}
 
@@ -154,6 +164,7 @@ export default function RiderCategories() {
             <tbody>
               {categories.map((item, index) => {
                 const discountsMap = item.discounts || {}
+                const hasCategoryId = Number.isInteger(item.category_id) && item.category_id > 0
                 return (
                   <tr key={getRowKey(item, index)}>
                     <td className="category-col">
@@ -173,8 +184,9 @@ export default function RiderCategories() {
                           <button
                             type="button"
                             className="edit-cell-btn"
+                            disabled={!hasCategoryId || Boolean(activeEdit)}
                             onClick={() =>
-                              handleOpenEdit(item, index, agency, displayValue)
+                              handleOpenEdit(item, agency, displayValue)
                             }
                             aria-label={`Edit discount for ${item.category_name || 'category'} at ${agency.label}`}
                           >
@@ -198,19 +210,16 @@ export default function RiderCategories() {
         <strong>-</strong> indicates no discount is available for that category at that agency.
       </p>
 
-      <EditDiscountModal
-        key={
-          activeEdit
-            ? `${activeEdit.rowKey}-${activeEdit.agencyId}-${activeEdit.currentDiscount}`
-            : 'closed'
-        }
-        isOpen={Boolean(activeEdit)}
-        categoryName={activeEdit?.categoryName ?? ''}
-        agencyLabel={activeEdit?.agencyLabel ?? ''}
-        currentDiscount={activeEdit?.currentDiscount ?? ''}
-        onClose={() => setActiveEdit(null)}
-        onSave={handleSaveDiscount}
-      />
+      {activeEdit && (
+        <EditDiscountModal
+          isOpen
+          categoryName={activeEdit.categoryName}
+          agencyLabel={activeEdit.agencyLabel}
+          currentDiscount={activeEdit.currentDiscount}
+          onClose={() => setActiveEdit(null)}
+          onSave={handleSaveDiscount}
+        />
+      )}
     </section>
   )
 }

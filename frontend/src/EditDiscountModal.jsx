@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 function getInitialDiscountInput(currentDiscount) {
   if (
@@ -24,13 +24,14 @@ export default function EditDiscountModal({
     getInitialDiscountInput(currentDiscount)
   )
   const [statusMessage, setStatusMessage] = useState('')
-  const [isError, setIsError] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const saveInFlight = useRef(false)
 
   useEffect(() => {
     if (!isOpen) return
 
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !saveInFlight.current) {
         onClose()
       }
     }
@@ -51,30 +52,41 @@ export default function EditDiscountModal({
         ? String(currentDiscount)
         : `${currentDiscount}%`
 
-  const handleSubmit = (event) => {
+  function handleClose() {
+    if (!saveInFlight.current) onClose()
+  }
+
+  async function handleSubmit(event) {
     event.preventDefault()
+    if (saveInFlight.current) return
 
     const trimmed = String(discountInput ?? '').trim()
     const parsed = Number(trimmed)
 
     if (trimmed === '' || Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
-      setIsError(true)
       setStatusMessage('Please enter a valid discount (%) between 0 and 100.')
       return
     }
 
-    onSave?.(parsed)
-    setIsError(false)
-    setStatusMessage(
-      'Not saved yet — changes will be saved once the backend task is connected.'
-    )
+    saveInFlight.current = true
+    setSaving(true)
+    setStatusMessage('')
+
+    try {
+      await onSave(parsed)
+    } catch (error) {
+      setStatusMessage(error.message)
+    } finally {
+      saveInFlight.current = false
+      setSaving(false)
+    }
   }
 
   return (
     <div
       className="edit-discount-backdrop"
       role="presentation"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="edit-discount-modal"
@@ -88,7 +100,8 @@ export default function EditDiscountModal({
           <button
             type="button"
             className="edit-discount-close"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={saving}
             aria-label="Close modal"
           >
             &times;
@@ -107,7 +120,7 @@ export default function EditDiscountModal({
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="edit-discount-form">
+        <form onSubmit={handleSubmit} className="edit-discount-form" aria-busy={saving}>
           <label htmlFor="discount-percent-input">Discount (%)</label>
           <input
             id="discount-percent-input"
@@ -116,24 +129,17 @@ export default function EditDiscountModal({
             min="0"
             max="100"
             value={discountInput}
+            disabled={saving}
             onChange={(event) => {
               setDiscountInput(event.target.value)
-              if (statusMessage) {
-                setStatusMessage('')
-                setIsError(false)
-              }
+              setStatusMessage('')
             }}
             placeholder="0 - 100"
             autoFocus
           />
 
           {statusMessage && (
-            <p
-              className={`edit-discount-status ${
-                isError ? 'is-error' : 'is-info'
-              }`}
-              role="alert"
-            >
+            <p className="edit-discount-feedback is-error" role="alert">
               {statusMessage}
             </p>
           )}
@@ -142,12 +148,13 @@ export default function EditDiscountModal({
             <button
               type="button"
               className="edit-discount-btn secondary"
-              onClick={onClose}
+              onClick={handleClose}
+              disabled={saving}
             >
               Cancel
             </button>
-            <button type="submit" className="edit-discount-btn primary">
-              Save
+            <button type="submit" className="edit-discount-btn primary" disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </form>

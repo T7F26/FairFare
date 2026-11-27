@@ -85,6 +85,28 @@ app.get("/api/rider-categories", async (req, res) => {
   }
 });
 
+// #43 and #46: a discount write requires an audit writer from #47.
+app.patch("/api/admin/rider-categories/:categoryId/discounts/:agencyId", async (req, res) => {
+  try {
+    const discount = await riderCategories.updateRiderDiscount(
+      req.params.categoryId,
+      req.params.agencyId,
+      req.body?.discount_percentage,
+      req.app.locals.recordDiscountChange
+    );
+    return res.status(200).json({ ...discount, message: `${discount.category_name} updated` });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ code: error.code, message: error.message });
+    }
+    console.error("Updating rider discount failed:", error);
+    return res.status(500).json({
+      code: "DISCOUNT_UPDATE_FAILED",
+      message: "Could not update the discount.",
+    });
+  }
+});
+
 // GTFS Upload and Import - Issue #16
 app.post("/api/admin/import", (req, res) => {
   upload.single("file")(req, res, async (uploadError) => {
