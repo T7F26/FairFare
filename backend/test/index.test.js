@@ -8,8 +8,8 @@ const pool = require("../src/db");
 const app = require("../src/index");
 const { listPublishedFares } = require("../src/publishedFares");
 const fareChanges = require("../src/fareChanges");
+const riderCategories = require("../src/riderCategories");
 
-// The route checks the agencies table first, so fake that query
 function mockAgencyLookup(t) {
   t.mock.method(pool, "query", async () => ({
     rowCount: 1,
@@ -19,7 +19,6 @@ function mockAgencyLookup(t) {
 
 test("POST /api/admin/import - valid GTFS upload is staged for review", async (t) => {
   mockAgencyLookup(t);
-  // Exercise the real validator and importer without connecting to PostgreSQL.
   const queries = [];
   t.mock.method(pool, "connect", async () => ({
     async query(sql) { queries.push(sql.trim()); },
@@ -73,7 +72,6 @@ test("POST /api/admin/import - validation failure", async (t) => {
 
   assert.strictEqual(response.status, 400);
   assert.strictEqual(response.body.code, "INVALID_GTFS");
-  // Nothing is written to the database when validation fails
   assert.strictEqual(importMock.mock.callCount(), 0);
 });
 
@@ -102,7 +100,6 @@ function mockFareReviewDatabase(t) {
   const comparisonSource = "FROM compare_fares($1) cf LEFT JOIN fare_change_statuses fcs "
     + "ON fcs.agency_id = $1 AND fcs.fare_id = cf.fare_id";
 
-  // Allow only reads and approval status writes, so any publication query fails the test.
   const query = t.mock.method(pool, "query", async (sql, parameters = []) => {
     const statement = sql.trim().replace(/\s+/g, " ");
     if (statement === "SELECT agency_id, uploaded_at FROM pending_import WHERE id = 1") {
@@ -179,7 +176,8 @@ test("approving and undoing a pending fare leave the published price unchanged",
   assert.deepStrictEqual(await listPublishedFares(agencyId), [publishedFare]);
   assert.deepStrictEqual(statusWrites, [[agencyId, fareId, "approved"], [agencyId, fareId, "waiting"]]);
 });
-test("POST /api/admin/fare-changes/publish - no approved changes", async(t) => {
+
+test("POST /api/admin/fare-changes/publish - no approved changes", async (t) => {
   t.mock.method(fareChanges, "publishFareChanges", async () => {
     throw new Error("No approved changes to publish");
   });
@@ -190,8 +188,8 @@ test("POST /api/admin/fare-changes/publish - no approved changes", async(t) => {
   assert.strictEqual(response.body.code, "NO_APPROVED_CHANGES");
 });
 
-test("POST /api/admin/fare-changes/publish - successfully publishes changes", async (t) =>{
-  t.mock.method(fareChanges, "publishFareChanges", async()=>({
+test("POST /api/admin/fare-changes/publish - successfully publishes changes", async (t) => {
+  t.mock.method(fareChanges, "publishFareChanges", async () => ({
     agencyId: "ttc",
     published_count: 5
   }));
@@ -199,5 +197,22 @@ test("POST /api/admin/fare-changes/publish - successfully publishes changes", as
   const response = await request(app).post("/api/admin/fare-changes/publish");
 
   assert.strictEqual(response.status, 200);
-  assert.deepStrictEqual(response.body,{agencyId: "ttc", published_count: 5});
+  assert.deepStrictEqual(response.body, { agencyId: "ttc", published_count: 5 });
+});
+
+test("GET /api/rider-categories - returns categories, discounts, and proof requirements", async (t) => {
+  const sampleCategories = [
+    {
+      category_id: 1,
+      category_name: "Senior",
+      proof_required: "Government ID / Senior fare card",
+      discounts: { ttc: 25, gotransit: 40 },
+    },
+  ];
+  t.mock.method(riderCategories, "listRiderCategories", async () => sampleCategories);
+
+  const response = await request(app).get("/api/rider-categories");
+
+  assert.strictEqual(response.status, 200);
+  assert.deepStrictEqual(response.body, sampleCategories);
 });

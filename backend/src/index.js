@@ -1,23 +1,17 @@
 "use strict";
-// FairFare Backend
-
-// Load environment variables before the database connection
 require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const pool = require("./db");
-// Keep the module objects (not destructured) so the unit tests can mock them
 const gtfs = require("./validation/gtfs");
 const gtfsImport = require("./gtfsImport");
 const fareChanges = require("./fareChanges");
+const riderCategories = require("./riderCategories");
 
 const app = express();
 
-// TODO: Add authentication and admin authorization
-// before enabling this endpoint in production.
-// GTFS ZIP upload configuration (50 MB maximum)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -27,11 +21,9 @@ const upload = multer({
   },
 });
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Agency display names (from the dropdown) -> database IDs
 const AGENCY_IDS = {
   TTC: "ttc",
   "GO Transit": "gotransit",
@@ -41,7 +33,6 @@ const AGENCY_IDS = {
   "Durham Region Transit": "durham_region_transit",
 };
 
-// Agency names that can appear in each agency's GTFS agency.txt
 const AGENCY_NAMES = {
   ttc: ["Toronto Transit Commission", "TTC"],
   gotransit: ["GO Transit", "GO Transit (Metrolinx)"],
@@ -51,7 +42,6 @@ const AGENCY_NAMES = {
   durham_region_transit: ["Durham Region Transit"],
 };
 
-// Backend and database connection test
 app.get("/api/test", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW() AS current_time");
@@ -70,10 +60,21 @@ app.get("/api/test", async (req, res) => {
   }
 });
 
-// GTFS Upload and Import - Issue #16
+app.get("/api/rider-categories", async (req, res) => {
+  try {
+    const categories = await riderCategories.listRiderCategories();
+    return res.status(200).json(categories);
+  } catch (error) {
+    console.error("Loading rider categories failed:", error);
+    return res.status(500).json({
+      code: "RIDER_CATEGORIES_FAILED",
+      message: "Could not load rider categories.",
+    });
+  }
+});
+
 app.post("/api/admin/import", (req, res) => {
   upload.single("file")(req, res, async (uploadError) => {
-    // Handle upload errors
     if (uploadError) {
       if (uploadError.code === "LIMIT_FILE_SIZE") {
         return res.status(413).json({
@@ -88,7 +89,6 @@ app.post("/api/admin/import", (req, res) => {
     }
 
     try {
-      // Make sure a file was uploaded
       if (!req.file || !req.file.buffer) {
         return res.status(400).json({
           code: "FILE_UNREADABLE",
@@ -96,7 +96,6 @@ app.post("/api/admin/import", (req, res) => {
         });
       }
 
-      // Convert the selected agency to its database ID
       const selectedAgency = String(req.body?.agency || "").trim();
       const agencyId =
         AGENCY_IDS[selectedAgency] ||
@@ -109,7 +108,6 @@ app.post("/api/admin/import", (req, res) => {
         });
       }
 
-      // Check that the selected agency exists in the database
       const agencyResult = await pool.query(
         "SELECT agency_id, agency_name FROM agencies WHERE agency_id = $1",
         [agencyId]
@@ -121,7 +119,6 @@ app.post("/api/admin/import", (req, res) => {
         });
       }
 
-      // Match the agency in the uploaded file to the selected agency
       const agencyMatcher = async (agencies) => {
         const validNames = [
           ...(AGENCY_NAMES[agencyId] || []),
@@ -138,22 +135,18 @@ app.post("/api/admin/import", (req, res) => {
         );
       };
 
-      // Validate the ZIP before writing anything to the database
       const validated = await gtfs.validateGtfsUpload(req.file.buffer, {
         agencyMatcher,
       });
 
-      // Save the validated records using the staging tables
       const imported = await gtfsImport.importGtfs(validated, agencyId);
 
       return res.status(200).json({ valid: true, ...imported });
     } catch (error) {
-      // GTFS validation errors (not GTFS, wrong agency, etc.)
       if (typeof error.toJSON === "function" && typeof error.code === "string") {
         return res.status(400).json(error.toJSON());
       }
 
-      // Database or unexpected errors (the transaction is rolled back)
       console.error("GTFS import failed:", error);
       return res.status(500).json({
         code: "IMPORT_FAILED",
@@ -163,7 +156,6 @@ app.post("/api/admin/import", (req, res) => {
   });
 });
 
-// Review Updates: fare changes in the latest pending import - Issue #23
 app.get("/api/admin/fare-changes", async (req, res) => {
   try {
     const result = await fareChanges.listFareChanges();
@@ -177,7 +169,6 @@ app.get("/api/admin/fare-changes", async (req, res) => {
   }
 });
 
-// Approve or undo a fare change status - Issue #28
 app.patch("/api/admin/fare-changes/:fareId/status", async (req, res) => {
   try {
     const result = await fareChanges.setFareChangeStatus(
@@ -225,7 +216,6 @@ app.post("/api/admin/fare-changes/publish", async(req, res) =>{
   }
 });
 
-// Start the server only when this file is run directly (not in tests)
 if (require.main === module) {
   const port = process.env.PORT || 4000;
   app.listen(port, () => {
