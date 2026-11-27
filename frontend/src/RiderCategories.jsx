@@ -71,19 +71,26 @@ export default function RiderCategories() {
       categoryName: item.category_name || '-',
       agencyId: agency.id,
       agencyLabel: agency.label,
-      currentFare: displayValue,
+      currentDiscount: displayValue,
     })
   }
 
-  function handleSaveFare(updatedFareValue) {
+  function handleSaveDiscount(updatedDiscountValue) {
     if (!activeEdit) return
 
-    const trimmed = String(updatedFareValue ?? '').trim()
+    const trimmed = String(updatedDiscountValue ?? '').trim()
     if (trimmed === '') return
 
-    const numericFare = Number(trimmed)
-    const valueToStore = Number.isNaN(numericFare) ? trimmed : numericFare
-    const formattedNewValue = formatDiscount(valueToStore)
+    const numericDiscount = Number(trimmed)
+    if (
+      Number.isNaN(numericDiscount) ||
+      numericDiscount < 0 ||
+      numericDiscount > 100
+    ) {
+      return
+    }
+
+    const formattedNewValue = formatDiscount(numericDiscount)
 
     setCategories((prev) =>
       prev.map((row, idx) => {
@@ -100,14 +107,14 @@ export default function RiderCategories() {
           ...row,
           discounts: {
             ...existingDiscounts,
-            [keyToUpdate]: valueToStore,
+            [keyToUpdate]: numericDiscount,
           },
         }
       })
     )
 
     setActiveEdit((prev) =>
-      prev ? { ...prev, currentFare: formattedNewValue } : null
+      prev ? { ...prev, currentDiscount: formattedNewValue } : null
     )
   }
 
@@ -192,12 +199,17 @@ export default function RiderCategories() {
       </p>
 
       <EditDiscountModal
+        key={
+          activeEdit
+            ? `${activeEdit.rowKey}-${activeEdit.agencyId}-${activeEdit.currentDiscount}`
+            : 'closed'
+        }
         isOpen={Boolean(activeEdit)}
-        categoryName={activeEdit?.categoryName}
-        agencyLabel={activeEdit?.agencyLabel}
-        currentFare={activeEdit?.currentFare}
+        categoryName={activeEdit?.categoryName ?? ''}
+        agencyLabel={activeEdit?.agencyLabel ?? ''}
+        currentDiscount={activeEdit?.currentDiscount ?? ''}
         onClose={() => setActiveEdit(null)}
-        onSave={handleSaveFare}
+        onSave={handleSaveDiscount}
       />
     </section>
   )

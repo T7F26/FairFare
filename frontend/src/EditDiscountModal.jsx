@@ -1,34 +1,36 @@
 import { useEffect, useState } from 'react'
 
+function getInitialDiscountInput(currentDiscount) {
+  if (
+    currentDiscount === null ||
+    currentDiscount === undefined ||
+    currentDiscount === '-' ||
+    currentDiscount === ''
+  ) {
+    return ''
+  }
+  return String(currentDiscount).replace('%', '').trim()
+}
+
 export default function EditDiscountModal({
   isOpen,
   categoryName,
   agencyLabel,
-  currentFare,
+  currentDiscount,
   onClose,
   onSave,
 }) {
-  const [newFare, setNewFare] = useState('')
+  const [discountInput, setDiscountInput] = useState(() =>
+    getInitialDiscountInput(currentDiscount)
+  )
   const [statusMessage, setStatusMessage] = useState('')
   const [isError, setIsError] = useState(false)
 
   useEffect(() => {
-    if (isOpen) {
-      setNewFare(
-        currentFare !== null && currentFare !== undefined && currentFare !== '-'
-          ? String(currentFare).replace('%', '')
-          : ''
-      )
-      setStatusMessage('')
-      setIsError(false)
-    }
-  }, [isOpen, currentFare])
+    if (!isOpen) return
 
-  useEffect(() => {
-    if (!isOpen || !onClose) return
-
-    function handleKeyDown(e) {
-      if (e.key === 'Escape') {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
         onClose()
       }
     }
@@ -39,89 +41,98 @@ export default function EditDiscountModal({
 
   if (!isOpen) return null
 
-  function handleSubmit(e) {
-    e.preventDefault()
+  const formattedCurrentDiscount =
+    currentDiscount === null ||
+    currentDiscount === undefined ||
+    currentDiscount === '' ||
+    currentDiscount === '-'
+      ? '-'
+      : String(currentDiscount).includes('%')
+        ? String(currentDiscount)
+        : `${currentDiscount}%`
 
-    const trimmed = newFare.trim()
-    const numericValue = Number(trimmed)
-    if (trimmed === '' || Number.isNaN(numericValue)) {
+  const handleSubmit = (event) => {
+    event.preventDefault()
+
+    const trimmed = String(discountInput ?? '').trim()
+    const parsed = Number(trimmed)
+
+    if (trimmed === '' || Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
       setIsError(true)
-      setStatusMessage('Please enter a valid fare.')
+      setStatusMessage('Please enter a valid discount (%) between 0 and 100.')
       return
     }
 
-    if (numericValue < 0) {
-      setIsError(true)
-      setStatusMessage("Fare can't be negative")
-      return
-    }
-
+    onSave?.(parsed)
     setIsError(false)
-    setStatusMessage(`${categoryName} updated`)
-
-    if (onSave) {
-      onSave(trimmed)
-    }
+    setStatusMessage(
+      'Not saved yet — changes will be saved once the backend task is connected.'
+    )
   }
 
   return (
     <div
       className="edit-discount-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="edit-discount-title"
+      role="presentation"
+      onClick={onClose}
     >
-      <div className="edit-discount-modal">
+      <div
+        className="edit-discount-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-discount-title"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="edit-discount-header">
-          <h3 id="edit-discount-title">Edit Discount</h3>
+          <h2 id="edit-discount-title">Edit Discount</h2>
           <button
             type="button"
             className="edit-discount-close"
             onClick={onClose}
             aria-label="Close modal"
           >
-            ×
+            &times;
           </button>
         </div>
 
-        <dl className="edit-discount-meta">
-          <div className="edit-discount-row">
-            <dt>Category:</dt>
-            <dd>{categoryName || '-'}</dd>
-          </div>
-          <div className="edit-discount-row">
-            <dt>Agency:</dt>
-            <dd>{agencyLabel || '-'}</dd>
-          </div>
-          <div className="edit-discount-row">
-            <dt>Current Fare:</dt>
-            <dd>{currentFare ?? '-'}</dd>
-          </div>
-        </dl>
+        <div className="edit-discount-meta">
+          <p>
+            <strong>Category:</strong> {categoryName}
+          </p>
+          <p>
+            <strong>Agency:</strong> {agencyLabel}
+          </p>
+          <p>
+            <strong>Current Discount (%):</strong> {formattedCurrentDiscount}
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit}>
-          <label htmlFor="new-fare-input" className="edit-discount-label">
-            New Fare
-          </label>
+        <form onSubmit={handleSubmit} className="edit-discount-form">
+          <label htmlFor="discount-percent-input">Discount (%)</label>
           <input
-            id="new-fare-input"
+            id="discount-percent-input"
             type="number"
             step="any"
-            className="edit-discount-input"
-            value={newFare}
-            onChange={(e) => {
-              setNewFare(e.target.value)
+            min="0"
+            max="100"
+            value={discountInput}
+            onChange={(event) => {
+              setDiscountInput(event.target.value)
               if (statusMessage) {
                 setStatusMessage('')
                 setIsError(false)
               }
             }}
+            placeholder="0 - 100"
+            autoFocus
           />
 
           {statusMessage && (
             <p
-              role={isError ? 'alert' : 'status'}
-              className={`edit-discount-feedback ${isError ? 'is-error' : 'is-success'}`}
+              className={`edit-discount-status ${
+                isError ? 'is-error' : 'is-info'
+              }`}
+              role="alert"
             >
               {statusMessage}
             </p>
@@ -130,12 +141,12 @@ export default function EditDiscountModal({
           <div className="edit-discount-actions">
             <button
               type="button"
-              className="edit-discount-btn cancel"
+              className="edit-discount-btn secondary"
               onClick={onClose}
             >
               Cancel
             </button>
-            <button type="submit" className="edit-discount-btn save">
+            <button type="submit" className="edit-discount-btn primary">
               Save
             </button>
           </div>
