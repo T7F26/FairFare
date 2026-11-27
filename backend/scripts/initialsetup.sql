@@ -1,8 +1,14 @@
 --Please run agencies.sql first
-create table if not exists rider_categories(
-    category_id serial primary key,
-    category_name varchar(50) unique not null
+CREATE TABLE IF NOT EXISTS rider_categories (
+    category_id SERIAL PRIMARY KEY,
+    category_name VARCHAR(50) UNIQUE NOT NULL,
+    proof_required VARCHAR(255)
 );
+
+-- Add the column to databases where the table already exists
+ALTER TABLE rider_categories
+ADD COLUMN IF NOT EXISTS proof_required VARCHAR(255);
+
 create table if not exists users(
     user_id serial primary key,
     category_id integer references rider_categories(category_id) on delete set null, 
@@ -126,3 +132,15 @@ create table if not exists fares_log(
     agency_id varchar(100),
     changed_at timestamp
 );
+-- Rider categories for Issue #37
+-- Proof requirements will be updated with agreed values.
+
+INSERT INTO rider_categories (category_name)
+VALUES
+    ('Adult'),
+    ('Youth'),
+    ('Student'),
+    ('Post-Secondary Student'),
+    ('Senior'),
+    ('Low-Income')
+ON CONFLICT (category_name) DO NOTHING;
