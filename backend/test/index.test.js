@@ -212,6 +212,18 @@ test("GET /api/rider-categories - returns categories, discounts, and proof requi
       proof_required: "Government ID / Senior fare card",
       discounts: { ttc: 25, gotransit: 40 },
     },
+    {
+      category_id: 2,
+      category_name: "Post-Secondary Student",
+      proof_required: "Valid student ID",
+      discounts: { gotransit: 40 },
+    },
+    {
+      category_id: 3,
+      category_name: "Adult",
+      proof_required: null,
+      discounts: {},
+    },
   ];
   t.mock.method(riderCategories, "listRiderCategories", async () => sampleCategories);
 
@@ -219,4 +231,21 @@ test("GET /api/rider-categories - returns categories, discounts, and proof requi
 
   assert.strictEqual(response.status, 200);
   assert.deepStrictEqual(response.body, sampleCategories);
+  // Agencies with no discount are omitted so the UI shows "-"
+  assert.strictEqual(response.body[1].discounts.ttc, undefined);
+  assert.deepStrictEqual(response.body[2].discounts, {});
+});
+
+test("GET /api/rider-categories - returns 500 when loading rider categories fails", async (t) => {
+  t.mock.method(riderCategories, "listRiderCategories", async () => {
+    throw new Error("Database error");
+  });
+
+  const response = await request(app).get("/api/rider-categories");
+
+  assert.strictEqual(response.status, 500);
+  assert.deepStrictEqual(response.body, {
+    code: "RIDER_CATEGORIES_FAILED",
+    message: "Could not load rider categories.",
+  });
 });
