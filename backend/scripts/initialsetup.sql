@@ -144,3 +144,68 @@ VALUES
     ('Senior'),
     ('Low-Income')
 ON CONFLICT (category_name) DO NOTHING;
+
+-- Proof requirements for each rider category
+UPDATE rider_categories
+SET proof_required = CASE category_name
+    WHEN 'Adult' THEN 'None'
+    WHEN 'Youth' THEN 'Proof of age (photo ID)'
+    WHEN 'Student' THEN 'School photo ID'
+    WHEN 'Senior' THEN 'Government photo ID showing age 65+'
+    WHEN 'Post-Secondary Student' THEN 'Valid post-secondary student photo ID'
+    WHEN 'Low-Income' THEN 'Approval in the agency''s low-income program (e.g. TTC Fair Pass, Peel Affordable Transit Program)'
+END
+WHERE category_name IN (
+    'Adult', 'Youth', 'Student', 'Senior',
+    'Post-Secondary Student', 'Low-Income'
+);
+
+-- Agency discounts confirmed by Ashmeet for Issue #37
+-- Values represent percentage discounts compared with adult fares.
+
+INSERT INTO agency_discounts
+    (agency_id, category_id, discount_percentage)
+SELECT a.agency_id, rc.category_id, d.discount_percentage
+FROM (
+    VALUES
+    -- Youth
+    ('ttc', 'Youth', 28.79),
+    ('gotransit', 'Youth', 40.00),
+    ('miway', 'Youth', 17.14),
+    ('brampton_transit', 'Youth', 16.90),
+    ('yrt', 'Youth', 22.41),
+    ('durham_region_transit', 'Youth', 9.90),
+
+    -- Student
+    ('ttc', 'Student', 28.79),
+    ('gotransit', 'Student', 40.00),
+    ('miway', 'Student', 17.14),
+    ('brampton_transit', 'Student', 16.90),
+    ('yrt', 'Student', 22.41),
+    ('durham_region_transit', 'Student', 9.90),
+
+    -- Senior
+    ('ttc', 'Senior', 31.82),
+    ('gotransit', 'Senior', 55.00),
+    ('miway', 'Senior', 100.00),
+    ('brampton_transit', 'Senior', 47.89),
+    ('yrt', 'Senior', 38.68),
+    ('durham_region_transit', 'Senior', 34.11),
+
+    -- Post-Secondary Student
+    ('gotransit', 'Post-Secondary Student', 40.00),
+
+    -- Low-Income
+    ('ttc', 'Low-Income', 36.36),
+    ('miway', 'Low-Income', 50.00),
+    ('brampton_transit', 'Low-Income', 50.00)
+
+) AS d(agency_id, category_name, discount_percentage)
+JOIN agencies a ON a.agency_id = d.agency_id
+JOIN rider_categories rc ON rc.category_name = d.category_name
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM agency_discounts ad
+    WHERE ad.agency_id = a.agency_id
+      AND ad.category_id = rc.category_id
+);
