@@ -2,27 +2,12 @@
 
 const pool = require("./db");
 
-async function hasProofRequiredColumn() {
-  const result = await pool.query(
-    `SELECT 1
-     FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'rider_categories'
-       AND column_name = 'proof_required'
-     LIMIT 1`
-  );
-  return result.rowCount > 0;
-}
-
 async function listRiderCategories() {
-  const includeProof = await hasProofRequiredColumn();
-  const proofSelect = includeProof ? "rc.proof_required" : "NULL::text AS proof_required";
-
   const result = await pool.query(
     `SELECT
        rc.category_id,
        rc.category_name,
-       ${proofSelect},
+       rc.proof_required,
        COALESCE(
          json_object_agg(ad.agency_id, ad.discount_percentage)
            FILTER (WHERE ad.agency_id IS NOT NULL),
@@ -31,7 +16,7 @@ async function listRiderCategories() {
      FROM rider_categories rc
      LEFT JOIN agency_discounts ad
        ON ad.category_id = rc.category_id
-     GROUP BY rc.category_id, rc.category_name${includeProof ? ", rc.proof_required" : ""}
+     GROUP BY rc.category_id, rc.category_name, rc.proof_required
      ORDER BY rc.category_id`
   );
 

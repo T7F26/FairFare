@@ -10,6 +10,7 @@ const { listPublishedFares } = require("../src/publishedFares");
 const fareChanges = require("../src/fareChanges");
 const riderCategories = require("../src/riderCategories");
 
+// The route checks the agencies table first, so fake that query
 function mockAgencyLookup(t) {
   t.mock.method(pool, "query", async () => ({
     rowCount: 1,
@@ -19,6 +20,7 @@ function mockAgencyLookup(t) {
 
 test("POST /api/admin/import - valid GTFS upload is staged for review", async (t) => {
   mockAgencyLookup(t);
+  // Exercise the real validator and importer without connecting to PostgreSQL.
   const queries = [];
   t.mock.method(pool, "connect", async () => ({
     async query(sql) { queries.push(sql.trim()); },
@@ -72,6 +74,7 @@ test("POST /api/admin/import - validation failure", async (t) => {
 
   assert.strictEqual(response.status, 400);
   assert.strictEqual(response.body.code, "INVALID_GTFS");
+  // Nothing is written to the database when validation fails
   assert.strictEqual(importMock.mock.callCount(), 0);
 });
 
@@ -100,6 +103,7 @@ function mockFareReviewDatabase(t) {
   const comparisonSource = "FROM compare_fares($1) cf LEFT JOIN fare_change_statuses fcs "
     + "ON fcs.agency_id = $1 AND fcs.fare_id = cf.fare_id";
 
+  // Allow only reads and approval status writes, so any publication query fails the test.
   const query = t.mock.method(pool, "query", async (sql, parameters = []) => {
     const statement = sql.trim().replace(/\s+/g, " ");
     if (statement === "SELECT agency_id, uploaded_at FROM pending_import WHERE id = 1") {
