@@ -12,6 +12,7 @@ const pool = require("./db");
 const gtfs = require("./validation/gtfs");
 const gtfsImport = require("./gtfsImport");
 const fareChanges = require("./fareChanges");
+const riderCategories = require("./riderCategories");
 
 const app = express();
 
@@ -66,6 +67,20 @@ app.get("/api/test", async (req, res) => {
     res.status(500).json({
       status: "error",
       message: "Database connection failed",
+    });
+  }
+});
+
+// See Rider Categories: fetch categories, discounts, and proof requirements - Issue #40
+app.get("/api/rider-categories", async (req, res) => {
+  try {
+    const categories = await riderCategories.listRiderCategories();
+    return res.status(200).json(categories);
+  } catch (error) {
+    console.error("Loading rider categories failed:", error);
+    return res.status(500).json({
+      code: "RIDER_CATEGORIES_FAILED",
+      message: "Could not load rider categories.",
     });
   }
 });

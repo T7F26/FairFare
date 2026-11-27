@@ -8,6 +8,7 @@ const pool = require("../src/db");
 const app = require("../src/index");
 const { listPublishedFares } = require("../src/publishedFares");
 const fareChanges = require("../src/fareChanges");
+const riderCategories = require("../src/riderCategories");
 
 // The route checks the agencies table first, so fake that query
 function mockAgencyLookup(t) {
@@ -179,7 +180,8 @@ test("approving and undoing a pending fare leave the published price unchanged",
   assert.deepStrictEqual(await listPublishedFares(agencyId), [publishedFare]);
   assert.deepStrictEqual(statusWrites, [[agencyId, fareId, "approved"], [agencyId, fareId, "waiting"]]);
 });
-test("POST /api/admin/fare-changes/publish - no approved changes", async(t) => {
+
+test("POST /api/admin/fare-changes/publish - no approved changes", async (t) => {
   t.mock.method(fareChanges, "publishFareChanges", async () => {
     throw new Error("No approved changes to publish");
   });
@@ -190,8 +192,8 @@ test("POST /api/admin/fare-changes/publish - no approved changes", async(t) => {
   assert.strictEqual(response.body.code, "NO_APPROVED_CHANGES");
 });
 
-test("POST /api/admin/fare-changes/publish - successfully publishes changes", async (t) =>{
-  t.mock.method(fareChanges, "publishFareChanges", async()=>({
+test("POST /api/admin/fare-changes/publish - successfully publishes changes", async (t) => {
+  t.mock.method(fareChanges, "publishFareChanges", async () => ({
     agencyId: "ttc",
     published_count: 5
   }));
@@ -199,5 +201,22 @@ test("POST /api/admin/fare-changes/publish - successfully publishes changes", as
   const response = await request(app).post("/api/admin/fare-changes/publish");
 
   assert.strictEqual(response.status, 200);
-  assert.deepStrictEqual(response.body,{agencyId: "ttc", published_count: 5});
+  assert.deepStrictEqual(response.body, { agencyId: "ttc", published_count: 5 });
+});
+
+test("GET /api/rider-categories - returns categories, discounts, and proof requirements", async (t) => {
+  const sampleCategories = [
+    {
+      category_id: 1,
+      category_name: "Senior",
+      proof_required: "Government ID / Senior fare card",
+      discounts: { ttc: 25, gotransit: 40 },
+    },
+  ];
+  t.mock.method(riderCategories, "listRiderCategories", async () => sampleCategories);
+
+  const response = await request(app).get("/api/rider-categories");
+
+  assert.strictEqual(response.status, 200);
+  assert.deepStrictEqual(response.body, sampleCategories);
 });
