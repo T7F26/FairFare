@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import EditDiscountModal from './EditDiscountModal.jsx'
 import './RiderCategories.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
@@ -22,10 +23,15 @@ function formatDiscount(value) {
   return String(value)
 }
 
+function getRowKey(item, index) {
+  return item.category_id ?? item.category_name ?? index
+}
+
 export default function RiderCategories() {
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activeEdit, setActiveEdit] = useState(null)
 
   useEffect(() => {
     let isCurrent = true
@@ -58,6 +64,59 @@ export default function RiderCategories() {
       isCurrent = false
     }
   }, [])
+
+  function handleOpenEdit(item, rowIndex, agency, displayValue) {
+    setActiveEdit({
+      rowKey: getRowKey(item, rowIndex),
+      categoryName: item.category_name || '-',
+      agencyId: agency.id,
+      agencyLabel: agency.label,
+      currentDiscount: displayValue,
+    })
+  }
+
+  function handleSaveDiscount(updatedDiscountValue) {
+    if (!activeEdit) return
+
+    const trimmed = String(updatedDiscountValue ?? '').trim()
+    if (trimmed === '') return
+
+    const numericDiscount = Number(trimmed)
+    if (
+      Number.isNaN(numericDiscount) ||
+      numericDiscount < 0 ||
+      numericDiscount > 100
+    ) {
+      return
+    }
+
+    const formattedNewValue = formatDiscount(numericDiscount)
+
+    setCategories((prev) =>
+      prev.map((row, idx) => {
+        if (getRowKey(row, idx) !== activeEdit.rowKey) return row
+        const existingDiscounts = row.discounts || {}
+        const keyToUpdate = Object.prototype.hasOwnProperty.call(
+          existingDiscounts,
+          activeEdit.agencyLabel
+        )
+          ? activeEdit.agencyLabel
+          : activeEdit.agencyId
+
+        return {
+          ...row,
+          discounts: {
+            ...existingDiscounts,
+            [keyToUpdate]: numericDiscount,
+          },
+        }
+      })
+    )
+
+    setActiveEdit((prev) =>
+      prev ? { ...prev, currentDiscount: formattedNewValue } : null
+    )
+  }
 
   return (
     <section className="rider-categories">
@@ -96,7 +155,7 @@ export default function RiderCategories() {
               {categories.map((item, index) => {
                 const discountsMap = item.discounts || {}
                 return (
-                  <tr key={item.category_id ?? item.category_name ?? index}>
+                  <tr key={getRowKey(item, index)}>
                     <td className="category-col">
                       {item.category_name || '-'}
                     </td>
@@ -111,7 +170,16 @@ export default function RiderCategories() {
                           key={agency.id}
                           className={hasNoDiscount ? 'no-discount' : 'discount'}
                         >
-                          {displayValue}
+                          <button
+                            type="button"
+                            className="edit-cell-btn"
+                            onClick={() =>
+                              handleOpenEdit(item, index, agency, displayValue)
+                            }
+                            aria-label={`Edit discount for ${item.category_name || 'category'} at ${agency.label}`}
+                          >
+                            {displayValue}
+                          </button>
                         </td>
                       )
                     })}
@@ -129,6 +197,20 @@ export default function RiderCategories() {
       <p className="note">
         <strong>-</strong> indicates no discount is available for that category at that agency.
       </p>
+
+      <EditDiscountModal
+        key={
+          activeEdit
+            ? `${activeEdit.rowKey}-${activeEdit.agencyId}-${activeEdit.currentDiscount}`
+            : 'closed'
+        }
+        isOpen={Boolean(activeEdit)}
+        categoryName={activeEdit?.categoryName ?? ''}
+        agencyLabel={activeEdit?.agencyLabel ?? ''}
+        currentDiscount={activeEdit?.currentDiscount ?? ''}
+        onClose={() => setActiveEdit(null)}
+        onSave={handleSaveDiscount}
+      />
     </section>
   )
 }

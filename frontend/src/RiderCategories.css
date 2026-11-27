@@ -1,64 +1,206 @@
 .rider-categories {
-    max-width: 960px;
-    margin: 40px auto;
-    padding: 24px;
-    border: 2px solid #333;
-    border-radius: 8px;
-    text-align: left;
-  }
-  
-  .rider-categories h2 {
-    margin-top: 0;
-  }
-  
-  .rider-categories .subtitle {
-    margin-bottom: 16px;
-  }
-  
-  .rider-categories .table-wrap {
-    width: 100%;
-    overflow-x: auto;
-  }
-  
-  .rider-categories table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  
-  .rider-categories th,
-  .rider-categories td {
-    padding: 8px 10px;
-    border: 1px solid #555;
-  }
-  
-  .rider-categories th {
-    font-weight: bold;
-  }
-  
-  .rider-categories .category-col {
-    font-weight: bold;
-    white-space: nowrap;
-  }
-  
-  .rider-categories .no-discount {
-    text-align: center;
-  }
-  
-  .rider-categories .proof-col {
-    min-width: 180px;
-  }
-  
-  .rider-categories .note {
-    margin-top: 12px;
-    font-size: 14px;
-  }
-  
-  .rider-categories .message {
-    padding: 12px;
-    border: 2px solid #333;
-    border-radius: 6px;
-  }
-  
-  .rider-categories .error {
-    border-style: dashed;
-  }
+  max-width: 960px;
+  margin: 40px auto;
+  padding: 24px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.rider-categories h2 {
+  margin-top: 0;
+}
+
+.rider-categories .subtitle {
+  margin-bottom: 16px;
+}
+
+.rider-categories .table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.rider-categories table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rider-categories th,
+.rider-categories td {
+  padding: 8px 10px;
+  border: 1px solid #555;
+}
+
+.rider-categories th {
+  font-weight: bold;
+}
+
+.rider-categories .category-col {
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.rider-categories .no-discount {
+  text-align: center;
+}
+
+.rider-categories .proof-col {
+  min-width: 180px;
+}
+
+.rider-categories .note {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.rider-categories .message {
+  padding: 12px;
+  border: 2px solid #333;
+  border-radius: 6px;
+}
+
+.rider-categories .error {
+  border-style: dashed;
+}
+
+/* Edit Discount Modal & Clickable Cells (#44) */
+.rider-categories .edit-cell-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rider-categories .edit-cell-btn:hover,
+.rider-categories .edit-cell-btn:focus-visible {
+  border-color: #333;
+  background-color: #f3f4f6;
+}
+
+.edit-discount-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.edit-discount-modal {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  color: #111;
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: left;
+}
+
+.edit-discount-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.edit-discount-header h3 {
+  margin: 0;
+}
+
+.edit-discount-close {
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.edit-discount-meta {
+  margin: 0 0 16px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.edit-discount-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.edit-discount-row dt {
+  font-weight: bold;
+}
+
+.edit-discount-row dd {
+  margin: 0;
+}
+
+.edit-discount-label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+
+.edit-discount-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.edit-discount-feedback {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.edit-discount-feedback.is-error {
+  border: 1px solid #b91c1c;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.edit-discount-feedback.is-success {
+  border: 1px solid #15803d;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.edit-discount-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.edit-discount-btn {
+  padding: 8px 14px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.edit-discount-btn.cancel {
+  background: #fff;
+  color: #111;
+}
+
+.edit-discount-btn.save {
+  background: #dcfce7;
+  color: #111;
+  font-weight: bold;
+}
