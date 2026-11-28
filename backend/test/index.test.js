@@ -1,6 +1,5 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const express = require("express");
 const request = require("supertest");
 const { ZipFile } = require("yazl");
 const gtfsModule = require("../src/validation/gtfs");
@@ -254,15 +253,6 @@ test("GET /api/rider-categories - returns 500 when loading rider categories fail
 const discountUpdatePath = "/api/admin/rider-categories/17/discounts/ttc";
 const existingDiscount = { discount_id: 81 };
 
-function requestAsDiscountUser(userRole = "admin", userId = 42) {
-  const authenticatedApp = express();
-  authenticatedApp.use((req, _res, next) => {
-    req.user = { user_id: userId, user_role: userRole };
-    next();
-  });
-  return request(authenticatedApp.use(app));
-}
-
 function discountTransactionStart(categoryId, agencyId) {
   return [
     ["BEGIN ISOLATION LEVEL READ COMMITTED"],
@@ -278,7 +268,17 @@ function mockDiscountDatabase(t, {
   failAt,
   auditAvailable = true,
   targetExists = true,
+  testWritesEnabled = true,
 } = {}) {
+  const flag = "FAIRFARE_ENABLE_TEST_DISCOUNT_WRITES";
+  const previousFlag = process.env[flag];
+  if (testWritesEnabled) process.env[flag] = "true";
+  else delete process.env[flag];
+  t.after(() => {
+    if (previousFlag === undefined) delete process.env[flag];
+    else process.env[flag] = previousFlag;
+  });
+
   const calls = [];
   const client = {
     async query(sql, parameters = []) {
@@ -306,10 +306,6 @@ function mockDiscountDatabase(t, {
       if (statement === "SELECT discount_id FROM agency_discounts WHERE category_id = $1 AND agency_id = $2 ORDER BY discount_id LIMIT 2 FOR UPDATE") {
         calls.push(["MATCHES", parameters]);
         return { rowCount: matches.length, rows: matches };
-      }
-      if (statement === "SELECT set_config('app.user_id', $1, true)") {
-        calls.push(["ACTOR", parameters]);
-        return { rows: [] };
       }
       if (statement.startsWith("UPDATE ")) {
         assert.strictEqual(statement,
@@ -342,10 +338,10 @@ for (const [percentage, storedValue, expected] of [
   [100, "100.00", 100],
   [35.125, "35.13", 35.13],
 ]) {
-  test(`PATCH rider discount - saves ${percentage}% and returns the stored value`, async (t) => {
+  test(`PATCH rider discount - saves ${percentage}% without a request user when test writes are enabled`, async (t) => {
     const { calls, connect } = mockDiscountDatabase(t, { storedValue });
 
-    const response = await requestAsDiscountUser().patch(discountUpdatePath).send({ discount_percentage: percentage });
+    const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: percentage });
 
     const discount = {
       category_id: 17,
@@ -359,7 +355,6 @@ for (const [percentage, storedValue, expected] of [
     assert.deepStrictEqual(calls, [
       ...discountTransactionStart(17, "ttc"),
       ["MATCHES", [17, "ttc"]],
-      ["ACTOR", ["42"]],
       ["UPDATE", [17, "ttc", percentage, existingDiscount.discount_id]],
       ["COMMIT"],
       ["RELEASE"],
@@ -369,7 +364,6 @@ for (const [percentage, storedValue, expected] of [
 
 test("PATCH rider discount - rejects invalid percentages and identifiers before any queries or audit", async (t) => {
   const { calls, connect, poolQuery } = mockDiscountDatabase(t);
-  const authenticated = requestAsDiscountUser();
   const cases = [
     [discountUpdatePath, { discount_percentage: -0.01 }, "NEGATIVE_FARE"],
     [discountUpdatePath, { discount_percentage: 100.01 }, "INVALID_FARE"],
@@ -382,7 +376,7 @@ test("PATCH rider discount - rejects invalid percentages and identifiers before 
   ];
 
   for (const [path, body, code] of cases) {
-    const response = await authenticated.patch(path).send(body);
+    const response = await request(app).patch(path).send(body);
     assert.strictEqual(response.status, 400, code);
     assert.strictEqual(response.body.code, code);
     if (code === "NEGATIVE_FARE") assert.strictEqual(response.body.message, "Discount can't be negative");
@@ -395,7 +389,7 @@ test("PATCH rider discount - rejects invalid percentages and identifiers before 
 
 test("PATCH rider discount - creates a missing combination and returns the stored discount", async (t) => {
   const { calls } = mockDiscountDatabase(t, { matches: [] });
-  const response = await requestAsDiscountUser().patch(discountUpdatePath).send({ discount_percentage: 0 });
+  const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 0 });
 
   assert.strictEqual(response.status, 200);
   assert.deepStrictEqual(response.body, {
@@ -406,21 +400,20 @@ test("PATCH rider discount - creates a missing combination and returns the store
     message: "Senior updated",
   });
   assert.deepStrictEqual(calls, [
-    ...discountTransactionStart(17, "ttc"), ["MATCHES", [17, "ttc"]], ["ACTOR", ["42"]],
+    ...discountTransactionStart(17, "ttc"), ["MATCHES", [17, "ttc"]],
     ["INSERT", [17, "ttc", 0]], ["COMMIT"], ["RELEASE"],
   ]);
 });
 
 test("PATCH rider discount - rejects missing categories or agencies without inserting", async (t) => {
   const { calls } = mockDiscountDatabase(t, { targetExists: false });
-  const authenticated = requestAsDiscountUser();
   const paths = [
     ["/api/admin/rider-categories/999/discounts/ttc", [999, "ttc"]],
     ["/api/admin/rider-categories/17/discounts/unknown_agency", [17, "unknown_agency"]],
   ];
 
   for (const [path, parameters] of paths) {
-    const response = await authenticated.patch(path).send({ discount_percentage: 35 });
+    const response = await request(app).patch(path).send({ discount_percentage: 35 });
     assert.strictEqual(response.status, 404);
     assert.strictEqual(response.body.code, "DISCOUNT_TARGET_NOT_FOUND");
     assert.deepStrictEqual(calls.splice(0), [...discountTransactionStart(...parameters), ["ROLLBACK"], ["RELEASE"]]);
@@ -432,7 +425,7 @@ test("PATCH rider discount - rejects duplicate matches without updating or audit
     matches: [existingDiscount, { discount_id: 82 }],
   });
 
-  const response = await requestAsDiscountUser().patch(discountUpdatePath).send({ discount_percentage: 35 });
+  const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 35 });
 
   assert.strictEqual(response.status, 409);
   assert.strictEqual(response.body.code, "DISCOUNT_CONFLICT");
@@ -441,38 +434,15 @@ test("PATCH rider discount - rejects duplicate matches without updating or audit
   ]);
 });
 
-test("PATCH rider discount - rejects unauthenticated requests and ignores supplied identity", async (t) => {
-  const { calls, connect, poolQuery } = mockDiscountDatabase(t);
+test("PATCH rider discount - rejects writes by default before database access", async (t) => {
+  const { calls, connect, poolQuery } = mockDiscountDatabase(t, { testWritesEnabled: false });
+  const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 35 });
 
-  const response = await request(app).patch(discountUpdatePath)
-    .set("X-User-Id", "42").set("X-User-Role", "admin")
-    .send({ discount_percentage: 35, user_id: 42, user_role: "admin" });
-
-  assert.strictEqual(response.status, 401);
-  assert.strictEqual(response.body.code, "AUTHENTICATION_REQUIRED");
-  assert.strictEqual(connect.mock.callCount(), 0);
-  assert.strictEqual(poolQuery.mock.callCount(), 0);
-  assert.deepStrictEqual(calls, []);
-});
-
-test("PATCH rider discount - rejects authenticated non-admin users before database access", async (t) => {
-  const { calls, connect, poolQuery } = mockDiscountDatabase(t);
-  const response = await requestAsDiscountUser("customer").patch(discountUpdatePath).send({ discount_percentage: 35 });
-
-  assert.strictEqual(response.status, 403);
-  assert.strictEqual(response.body.code, "ADMIN_REQUIRED");
-  assert.strictEqual(connect.mock.callCount(), 0);
-  assert.strictEqual(poolQuery.mock.callCount(), 0);
-  assert.deepStrictEqual(calls, []);
-});
-
-test("PATCH rider discount - rejects admin sessions that lack a valid audit actor", async (t) => {
-  const { calls, connect, poolQuery } = mockDiscountDatabase(t);
-  const response = await requestAsDiscountUser("admin", null).patch(discountUpdatePath)
-    .send({ discount_percentage: 35 });
-
-  assert.strictEqual(response.status, 401);
-  assert.strictEqual(response.body.code, "AUTHENTICATION_REQUIRED");
+  assert.strictEqual(response.status, 503);
+  assert.deepStrictEqual(response.body, {
+    code: "DISCOUNT_TEST_WRITES_DISABLED",
+    message: "Discount editing is disabled outside the test deployment.",
+  });
   assert.strictEqual(connect.mock.callCount(), 0);
   assert.strictEqual(poolQuery.mock.callCount(), 0);
   assert.deepStrictEqual(calls, []);
@@ -481,7 +451,7 @@ test("PATCH rider discount - rejects admin sessions that lack a valid audit acto
 test("PATCH rider discount - leaves discounts unchanged when the database audit trigger is unavailable", async (t) => {
   const { calls } = mockDiscountDatabase(t, { auditAvailable: false });
 
-  const response = await requestAsDiscountUser().patch(discountUpdatePath).send({ discount_percentage: 35 });
+  const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 35 });
 
   assert.strictEqual(response.status, 503);
   assert.strictEqual(response.body.code, "DISCOUNT_AUDIT_UNAVAILABLE");
@@ -492,7 +462,7 @@ for (const failAt of ["UPDATE", "INSERT"]) {
   test(`PATCH rider discount - rolls back if ${failAt.toLowerCase()} fails`, async (t) => {
     const { calls } = mockDiscountDatabase(t, { failAt, matches: failAt === "INSERT" ? [] : [existingDiscount] });
 
-    const response = await requestAsDiscountUser().patch(discountUpdatePath).send({ discount_percentage: 35 });
+    const response = await request(app).patch(discountUpdatePath).send({ discount_percentage: 35 });
 
     assert.strictEqual(response.status, 500);
     assert.strictEqual(response.body.code, "DISCOUNT_UPDATE_FAILED");
@@ -500,7 +470,7 @@ for (const failAt of ["UPDATE", "INSERT"]) {
     const writeParams = [17, "ttc", 35];
     if (failAt === "UPDATE") writeParams.push(existingDiscount.discount_id);
     assert.deepStrictEqual(calls, [
-      ...discountTransactionStart(17, "ttc"), ["MATCHES", [17, "ttc"]], ["ACTOR", ["42"]],
+      ...discountTransactionStart(17, "ttc"), ["MATCHES", [17, "ttc"]],
       [failAt, writeParams], ["ROLLBACK"], ["RELEASE"],
     ]);
   });

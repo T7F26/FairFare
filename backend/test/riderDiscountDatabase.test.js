@@ -6,12 +6,14 @@ const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { Pool } = require("pg");
+const request = require("supertest");
+const app = require("../src/index");
 const appPool = require("../src/db");
 const { updateRiderDiscount } = require("../src/riderCategories");
 
 const testDatabaseUrl = process.env.FAIRFARE_DISCOUNT_TEST_DATABASE_URL;
 
-test("concurrent discount saves use one record and PostgreSQL audits committed changes", {
+test("test-site discount saves need no login, serialize inserts, and audit as CURRENT_USER", {
   skip: !testDatabaseUrl && "Set FAIRFARE_DISCOUNT_TEST_DATABASE_URL for an isolated PostgreSQL test database.",
 }, async (t) => {
   const url = new URL(testDatabaseUrl);
@@ -21,6 +23,13 @@ test("concurrent discount saves use one record and PostgreSQL audits committed c
     /^\/fairfare_discount_test_[a-z0-9_]+$/.test(url.pathname),
     "Use a dedicated fairfare_discount_test_* database on a loopback PostgreSQL instance."
   );
+
+  const previousTestWrites = process.env.FAIRFARE_ENABLE_TEST_DISCOUNT_WRITES;
+  process.env.FAIRFARE_ENABLE_TEST_DISCOUNT_WRITES = "true";
+  t.after(() => {
+    if (previousTestWrites === undefined) delete process.env.FAIRFARE_ENABLE_TEST_DISCOUNT_WRITES;
+    else process.env.FAIRFARE_ENABLE_TEST_DISCOUNT_WRITES = previousTestWrites;
+  });
 
   const schema = `discount_test_${randomUUID().replaceAll("-", "")}`;
   const connection = { connectionString: testDatabaseUrl, connectionTimeoutMillis: 5000 };
@@ -50,6 +59,7 @@ test("concurrent discount saves use one record and PostgreSQL audits committed c
     ["Test discount category"]
   );
   const id = category.category_id;
+  const { rows: [actor] } = await isolatedPool.query("SELECT CURRENT_USER AS database_user");
   await isolatedPool.query(
     "INSERT INTO agency_discounts (category_id, agency_id, discount_percentage) VALUES ($1, $2, $3)",
     [id, "miway", 17.14]
@@ -72,19 +82,18 @@ test("concurrent discount saves use one record and PostgreSQL audits committed c
     return rows;
   }
 
-  const results = await Promise.all([
-    updateRiderDiscount(id, "ttc", 35.125, 21),
-    updateRiderDiscount(id, "ttc", 100, 22),
-  ]);
-  assert.deepEqual(results.map((row) => row.discount_percentage), [35.13, 100]);
+  const urlPath = `/api/admin/rider-categories/${id}/discounts/ttc`;
+  const results = await Promise.all([35.125, 100].map((value) =>
+    request(app).patch(urlPath).send({ discount_percentage: value }).expect(200)
+  ));
+  assert.deepEqual(results.map((result) => result.body.discount_percentage), [35.13, 100]);
 
   const audit = await readTtcAudit();
   assert.equal(audit.length, 2);
   assert.equal(audit[0].old_discount, null);
   assert.equal(audit[1].old_discount, audit[0].new_discount);
-  const actorsByValue = new Map([["35.13", "21"], ["100.00", "22"]]);
-  assert.notEqual(audit[0].new_discount, audit[1].new_discount);
-  for (const row of audit) assert.equal(row.changed_by, actorsByValue.get(row.new_discount));
+  assert.deepEqual(audit.map((row) => row.new_discount).sort(), ["100.00", "35.13"]);
+  for (const row of audit) assert.equal(row.changed_by, actor.database_user);
 
   const discounts = await readDiscounts();
   assert.deepEqual(discounts, [
@@ -92,12 +101,12 @@ test("concurrent discount saves use one record and PostgreSQL audits committed c
     { agency_id: "ttc", discount_percentage: audit[1].new_discount },
   ]);
 
-  await updateRiderDiscount(id, "ttc", Number(audit[1].new_discount), 23);
+  await updateRiderDiscount(id, "ttc", Number(audit[1].new_discount));
   assert.deepEqual(await readTtcAudit(), audit);
 
   // Force the trigger's INSERT to fail and verify the discount rolls back with it.
   await isolatedPool.query("ALTER TABLE discount_change_log ADD CHECK (new_discount <> 99)");
-  await assert.rejects(() => updateRiderDiscount(id, "ttc", 99, 23), { code: "23514" });
+  await assert.rejects(() => updateRiderDiscount(id, "ttc", 99), { code: "23514" });
   assert.deepEqual(await readDiscounts(), discounts);
   assert.deepEqual(await readTtcAudit(), audit);
 });

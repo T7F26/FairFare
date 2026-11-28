@@ -85,21 +85,21 @@ app.get("/api/rider-categories", async (req, res) => {
   }
 });
 
-// The administrator authentication middleware must supply the trusted request user.
+// TODO: Restore administrator authentication and authorization when login is implemented.
 app.patch("/api/admin/rider-categories/:categoryId/discounts/:agencyId", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ code: "AUTHENTICATION_REQUIRED", message: "Sign in to edit discounts." });
-  }
-  if (req.user.user_role !== "admin") {
-    return res.status(403).json({ code: "ADMIN_REQUIRED", message: "Only administrators can edit discounts." });
+  // Enable unauthenticated writes only on an access-controlled test deployment.
+  if (process.env.FAIRFARE_ENABLE_TEST_DISCOUNT_WRITES !== "true") {
+    return res.status(503).json({
+      code: "DISCOUNT_TEST_WRITES_DISABLED",
+      message: "Discount editing is disabled outside the test deployment.",
+    });
   }
 
   try {
     const discount = await riderCategories.updateRiderDiscount(
       req.params.categoryId,
       req.params.agencyId,
-      req.body?.discount_percentage,
-      req.user.user_id
+      req.body?.discount_percentage
     );
     return res.status(200).json({ ...discount, message: `${discount.category_name} updated` });
   } catch (error) {

@@ -45,7 +45,7 @@ function discountUpdateError(statusCode, code, message) {
   return error;
 }
 
-async function updateRiderDiscount(categoryId, agencyId, value, actorId) {
+async function updateRiderDiscount(categoryId, agencyId, value) {
   const percentage = validateDiscountPercentage(value);
   const id = typeof categoryId === "string" && /^[1-9][0-9]{0,9}$/.test(categoryId)
     ? Number(categoryId)
@@ -57,9 +57,6 @@ async function updateRiderDiscount(categoryId, agencyId, value, actorId) {
   }
   if (typeof agencyId !== "string" || !/^[a-z][a-z0-9_]{0,99}$/.test(agencyId)) {
     throw discountUpdateError(400, "INVALID_AGENCY_ID", "A valid agency ID is required.");
-  }
-  if (!Number.isSafeInteger(actorId) || actorId < 1) {
-    throw discountUpdateError(401, "AUTHENTICATION_REQUIRED", "Sign in to edit discounts.");
   }
 
   const client = await pool.connect();
@@ -110,8 +107,6 @@ async function updateRiderDiscount(categoryId, agencyId, value, actorId) {
       throw discountUpdateError(409, "DISCOUNT_CONFLICT", "Multiple discounts exist for this rider category and agency.");
     }
 
-    // A transaction-local actor is visible to the audit trigger and cannot leak to the next request.
-    await client.query("SELECT set_config('app.user_id', $1, true)", [String(actorId)]);
     const result = rows.length === 0
       ? await client.query(
         `INSERT INTO agency_discounts (category_id, agency_id, discount_percentage)
