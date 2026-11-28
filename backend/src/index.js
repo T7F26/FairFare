@@ -85,6 +85,35 @@ app.get("/api/rider-categories", async (req, res) => {
   }
 });
 
+// TODO: Restore administrator authentication and authorization when login is implemented.
+app.patch("/api/admin/rider-categories/:categoryId/discounts/:agencyId", async (req, res) => {
+  // Enable unauthenticated writes only on an access-controlled test deployment.
+  if (process.env.FAIRFARE_ENABLE_TEST_DISCOUNT_WRITES !== "true") {
+    return res.status(503).json({
+      code: "DISCOUNT_TEST_WRITES_DISABLED",
+      message: "Discount editing is disabled outside the test deployment.",
+    });
+  }
+
+  try {
+    const discount = await riderCategories.updateRiderDiscount(
+      req.params.categoryId,
+      req.params.agencyId,
+      req.body?.discount_percentage
+    );
+    return res.status(200).json({ ...discount, message: `${discount.category_name} updated` });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ code: error.code, message: error.message });
+    }
+    console.error("Updating rider discount failed:", error);
+    return res.status(500).json({
+      code: "DISCOUNT_UPDATE_FAILED",
+      message: "Could not update the discount.",
+    });
+  }
+});
+
 // GTFS Upload and Import - Issue #16
 app.post("/api/admin/import", (req, res) => {
   upload.single("file")(req, res, async (uploadError) => {

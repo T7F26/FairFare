@@ -58,11 +58,11 @@ test("the upper bound applies to discount percentages only", () => {
   assert.strictEqual(validateFare(100.01), 100.01);
 });
 
-test("validateDiscountPercentage preserves the negative fare error", () => {
+test("validateDiscountPercentage gives negative discounts their own message", () => {
   assert.throws(() => validateDiscountPercentage(-0.01), {
     statusCode: 400,
     code: "NEGATIVE_FARE",
-    message: "Fare can't be negative",
+    message: "Discount can't be negative",
   });
 });
 

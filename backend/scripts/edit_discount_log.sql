@@ -17,45 +17,44 @@ CREATE TABLE IF NOT EXISTS discount_change_log (
 -- 2. Create a function to record changes.
 CREATE OR REPLACE FUNCTION log_discount_change()
 RETURNS TRIGGER AS $$
+DECLARE
+    previous_discount NUMERIC(5,2);
 BEGIN
-    -- Only record when the discount changes.
-    IF OLD.discount_percentage IS DISTINCT FROM
-       NEW.discount_percentage THEN
-
-        INSERT INTO discount_change_log (
-            agency_id,
-            category_id,
-            old_discount,
-            new_discount,
-            changed_by,
-            changed_at
-        )
-        VALUES (
-            NEW.agency_id,
-            NEW.category_id,
-            OLD.discount_percentage,
-            NEW.discount_percentage,
-            COALESCE(
-                NULLIF(
-                    CURRENT_SETTING('app.user_id', true),
-                    ''
-                ),
-                CURRENT_USER
-            ),
-            NOW()
-        );
+    IF TG_OP = 'UPDATE' THEN
+        previous_discount := OLD.discount_percentage;
+        IF previous_discount IS NOT DISTINCT FROM NEW.discount_percentage THEN
+            RETURN NEW;
+        END IF;
     END IF;
+
+    -- A new discount has no previous value.
+    INSERT INTO discount_change_log (
+        agency_id,
+        category_id,
+        old_discount,
+        new_discount,
+        changed_by,
+        changed_at
+    )
+    VALUES (
+        NEW.agency_id,
+        NEW.category_id,
+        previous_discount,
+        NEW.discount_percentage,
+        COALESCE(NULLIF(CURRENT_SETTING('app.user_id', true), ''), CURRENT_USER),
+        NOW()
+    );
 
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- 3. Create a trigger for discount updates.
+-- 3. Create a trigger for discount inserts and updates.
 DROP TRIGGER IF EXISTS
     trg_discount_change ON agency_discounts;
 
 CREATE TRIGGER trg_discount_change
-AFTER UPDATE OF discount_percentage
+AFTER INSERT OR UPDATE OF discount_percentage
 ON agency_discounts
 FOR EACH ROW
 EXECUTE FUNCTION log_discount_change();
