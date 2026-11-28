@@ -85,14 +85,21 @@ app.get("/api/rider-categories", async (req, res) => {
   }
 });
 
-// #43 and #46: a discount write requires an audit writer from #47.
+// The administrator authentication middleware must supply the trusted request user.
 app.patch("/api/admin/rider-categories/:categoryId/discounts/:agencyId", async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ code: "AUTHENTICATION_REQUIRED", message: "Sign in to edit discounts." });
+  }
+  if (req.user.user_role !== "admin") {
+    return res.status(403).json({ code: "ADMIN_REQUIRED", message: "Only administrators can edit discounts." });
+  }
+
   try {
     const discount = await riderCategories.updateRiderDiscount(
       req.params.categoryId,
       req.params.agencyId,
       req.body?.discount_percentage,
-      req.app.locals.recordDiscountChange
+      req.user.user_id
     );
     return res.status(200).json({ ...discount, message: `${discount.category_name} updated` });
   } catch (error) {

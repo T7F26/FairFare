@@ -31,11 +31,11 @@ function discountButton(category, agency) {
   return screen.getByRole('button', { name: `Edit discount for ${category} at ${agency}` })
 }
 
-async function openSeniorEdit() {
+async function openSeniorEdit(agency = 'TTC') {
   const user = userEvent.setup()
   render(<RiderCategories />)
   await screen.findByRole('table')
-  await user.click(discountButton('Senior', 'TTC'))
+  await user.click(discountButton('Senior', agency))
 
   const dialog = within(screen.getByRole('dialog', { name: 'Edit Discount' }))
   const input = dialog.getByRole('spinbutton', { name: 'Discount (%)' })
@@ -79,11 +79,49 @@ describe('Saving a rider category discount', () => {
     expect(discountButton('Youth', 'TTC')).toHaveTextContent('28.79%')
   })
 
+  it.each([0, 100])('saves %i%% for a cell without an existing discount', async (percentage) => {
+    fetchMock.mockResolvedValueOnce(Response.json({
+      ...savedDiscount,
+      agency_id: 'gotransit',
+      discount_percentage: percentage,
+    }))
+    const { user, input, saveButton } = await openSeniorEdit('GO Transit')
+
+    expect(discountButton('Senior', 'GO Transit')).toHaveTextContent(/^-$/)
+    expect(input).toHaveValue(null)
+    await user.type(input, String(percentage))
+    await user.click(saveButton)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Senior updated')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const request = new Request(...fetchMock.mock.calls[1])
+    expect(new URL(request.url).pathname).toBe('/api/admin/rider-categories/17/discounts/gotransit')
+    expect(request.method).toBe('PATCH')
+    expect(await request.json()).toEqual({ discount_percentage: percentage })
+    expect(discountButton('Senior', 'GO Transit')).toHaveTextContent(`${percentage}%`)
+    expect(discountButton('Youth', 'GO Transit')).toHaveTextContent(/^-$/)
+  })
+
   it.each([
-    [400, 'NEGATIVE_FARE', "Fare can't be negative"],
-    [404, 'DISCOUNT_NOT_FOUND', 'No discount exists for this rider category and agency.'],
+    ['-1', "Discount can't be negative"],
+    ['100.01', 'Please enter a valid discount (%) between 0 and 100.'],
+  ])('shows an inline error for %s without sending a save request', async (value, message) => {
+    const { user, dialog, input, saveButton } = await openSeniorEdit()
+
+    await enterDiscount(user, input, value)
+    await user.click(saveButton)
+
+    expect(dialog.getByRole('alert').textContent).toBe(message)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(discountButton('Senior', 'TTC')).toHaveTextContent('31.82%')
+  })
+
+  it.each([
+    [400, 'NEGATIVE_FARE', "Discount can't be negative"],
+    [401, 'AUTHENTICATION_REQUIRED', 'Sign in to edit discounts.'],
+    [404, 'DISCOUNT_TARGET_NOT_FOUND', 'The rider category or agency was not found.'],
     [409, 'DISCOUNT_CONFLICT', 'Multiple discounts exist for this rider category and agency.'],
-    [503, 'DISCOUNT_WRITES_UNAVAILABLE', 'Discount editing is not available yet.'],
+    [503, 'DISCOUNT_AUDIT_UNAVAILABLE', 'Discount change logging is not available.'],
   ])('shows the HTTP %i error without changing the discount', async (status, code, message) => {
     fetchMock.mockResolvedValueOnce(Response.json({ code, message }, { status }))
     const { user, dialog, input, saveButton } = await openSeniorEdit()

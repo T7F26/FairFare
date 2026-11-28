@@ -63,8 +63,12 @@ export default function EditDiscountModal({
     const trimmed = String(discountInput ?? '').trim()
     const parsed = Number(trimmed)
 
-    if (trimmed === '' || Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
+    if (trimmed === '' || !Number.isFinite(parsed) || parsed > 100) {
       setStatusMessage('Please enter a valid discount (%) between 0 and 100.')
+      return
+    }
+    if (parsed < 0) {
+      setStatusMessage("Discount can't be negative")
       return
     }
 
@@ -120,7 +124,7 @@ export default function EditDiscountModal({
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="edit-discount-form" aria-busy={saving}>
+        <form onSubmit={handleSubmit} className="edit-discount-form" aria-busy={saving} noValidate>
           <label htmlFor="discount-percent-input">Discount (%)</label>
           <input
             id="discount-percent-input"

@@ -45,7 +45,7 @@ function discountUpdateError(statusCode, code, message) {
   return error;
 }
 
-async function updateRiderDiscount(categoryId, agencyId, value, recordChange) {
+async function updateRiderDiscount(categoryId, agencyId, value, actorId) {
   const percentage = validateDiscountPercentage(value);
   const id = typeof categoryId === "string" && /^[1-9][0-9]{0,9}$/.test(categoryId)
     ? Number(categoryId)
@@ -58,59 +58,84 @@ async function updateRiderDiscount(categoryId, agencyId, value, recordChange) {
   if (typeof agencyId !== "string" || !/^[a-z][a-z0-9_]{0,99}$/.test(agencyId)) {
     throw discountUpdateError(400, "INVALID_AGENCY_ID", "A valid agency ID is required.");
   }
-  if (typeof recordChange !== "function") {
-    throw discountUpdateError(503, "DISCOUNT_WRITES_UNAVAILABLE", "Discount editing is not available yet.");
+  if (!Number.isSafeInteger(actorId) || actorId < 1) {
+    throw discountUpdateError(401, "AUTHENTICATION_REQUIRED", "Sign in to edit discounts.");
   }
 
   const client = await pool.connect();
   let releaseError;
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+
+    // A missing row cannot be row-locked. Serialize saves for the pair before looking for it.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('rider-discount:' || $1::text || ':' || $2::text, 0))",
+      [id, agencyId]
+    );
+
+    // Hold the write lock before checking the trigger, so concurrent DDL cannot remove it mid-save.
+    await client.query("LOCK TABLE agency_discounts IN ROW EXCLUSIVE MODE");
+    const { rows: targets } = await client.query(
+      `SELECT rc.category_name, EXISTS (
+         SELECT 1 FROM pg_trigger
+         WHERE tgrelid = 'agency_discounts'::regclass
+           AND tgname = 'trg_discount_change'
+           AND tgtype = 21
+           AND tgenabled IN ('O', 'A')
+       ) AS audit_ready
+       FROM rider_categories rc
+       JOIN agencies a ON a.agency_id = $2
+       WHERE rc.category_id = $1
+       FOR KEY SHARE OF rc, a`,
+      [id, agencyId]
+    );
+    if (targets.length === 0) {
+      throw discountUpdateError(404, "DISCOUNT_TARGET_NOT_FOUND", "The rider category or agency was not found.");
+    }
+    // Trigger type 21 is AFTER ROW for INSERT (4) and UPDATE (16), plus the row bit (1).
+    if (!targets[0].audit_ready) {
+      throw discountUpdateError(503, "DISCOUNT_AUDIT_UNAVAILABLE", "Discount change logging is not available.");
+    }
 
     // The schema permits duplicate pairs. Lock the candidate rows and reject ambiguous matches.
     const { rows } = await client.query(
-      `SELECT ad.discount_id, ad.discount_percentage, rc.category_name
-       FROM agency_discounts ad
-       JOIN rider_categories rc ON rc.category_id = ad.category_id
-       WHERE ad.category_id = $1 AND ad.agency_id = $2
-       ORDER BY ad.discount_id
+      `SELECT discount_id FROM agency_discounts
+       WHERE category_id = $1 AND agency_id = $2
+       ORDER BY discount_id
        LIMIT 2
-       FOR UPDATE OF ad`,
+       FOR UPDATE`,
       [id, agencyId]
     );
-    if (rows.length === 0) {
-      throw discountUpdateError(404, "DISCOUNT_NOT_FOUND", "No discount exists for this rider category and agency.");
-    }
     if (rows.length > 1) {
       throw discountUpdateError(409, "DISCOUNT_CONFLICT", "Multiple discounts exist for this rider category and agency.");
     }
 
-    const existing = rows[0];
-    const result = await client.query(
-      `UPDATE agency_discounts
-       SET discount_percentage = $3
-       WHERE category_id = $1 AND agency_id = $2 AND discount_id = $4
-       RETURNING discount_percentage`,
-      [id, agencyId, percentage, existing.discount_id]
-    );
+    // A transaction-local actor is visible to the audit trigger and cannot leak to the next request.
+    await client.query("SELECT set_config('app.user_id', $1, true)", [String(actorId)]);
+    const result = rows.length === 0
+      ? await client.query(
+        `INSERT INTO agency_discounts (category_id, agency_id, discount_percentage)
+         VALUES ($1, $2, $3) RETURNING discount_percentage`,
+        [id, agencyId, percentage]
+      )
+      : await client.query(
+        `UPDATE agency_discounts
+         SET discount_percentage = $3
+         WHERE category_id = $1 AND agency_id = $2 AND discount_id = $4
+         RETURNING discount_percentage`,
+        [id, agencyId, percentage, rows[0].discount_id]
+      );
     if (result.rows.length !== 1) {
-      throw new Error("Expected one discount row to be updated.");
+      throw new Error("Expected one discount row to be saved.");
     }
 
     const updated = {
       category_id: id,
-      category_name: existing.category_name,
+      category_name: targets[0].category_name,
       agency_id: agencyId,
       discount_percentage: Number(result.rows[0].discount_percentage),
     };
 
-    // Commit the discount and its audit entry together using the same client.
-    await recordChange(client, {
-      ...updated,
-      previous_discount_percentage: existing.discount_percentage === null
-        ? null
-        : Number(existing.discount_percentage),
-    });
     await client.query("COMMIT");
     return updated;
   } catch (error) {
